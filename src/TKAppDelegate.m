@@ -1,5 +1,7 @@
 #import "TKAppDelegate.h"
 #import "TKFeedViewController.h"
+#import "TKVideoCell.h"
+#import "TKTaste.h"
 #import "TKDiscoverViewController.h"
 #import "TKTikTok.h"
 #import "TKModels.h"
@@ -92,7 +94,7 @@ static BOOL TKPressView(UIView *v, NSString *text)
 }
 
 // tikie:add?u=@handle, tikie:play/<id>, and tiktok.com links. Debug commands (need Documents/debug): snapshot,
-// screen, press?title=/n=, back, stats.
+// screen, press?title=/n=, back, stats, swipe[?dir=down], remove?u=, taste[?reset=1], gesture?type=double|hold|scrub[&f=].
 - (BOOL)application:(UIApplication *)application openURL:(NSURL *)url sourceApplication:(NSString *)sourceApplication annotation:(id)annotation
 {
     NSString *s = url.absoluteString ?: @"";
@@ -191,6 +193,27 @@ static BOOL TKPressView(UIView *v, NSString *text)
                 break;
             }
         }
+        return YES;
+    }
+    if ([target isEqualToString:@"remove"] && [params[@"u"] length]) {
+        [TKSettings removeCreator:params[@"u"]];
+        TKLog(@"Creators now: %@", [[TKSettings creators] componentsJoinedByString:@", "]);
+        return YES;
+    }
+    if ([target isEqualToString:@"taste"]) {
+        if ([params[@"reset"] isEqualToString:@"1"]) [[TKTaste shared] reset];
+        TKLog(@"%@", [[TKTaste shared] summary]);
+        return YES;
+    }
+    // the gestures' actions on the page on screen: double (save), hold (menu), scrub&f=0.5 (seek to half)
+    if ([target isEqualToString:@"gesture"]) {
+        TKVideoCell *cell = [top isKindOfClass:[TKFeedViewController class]] ? [(TKFeedViewController *)top currentCell] : nil;
+        NSString *type = params[@"type"];
+        if (!cell) TKLog(@"Gesture %@: no video page on screen", type);
+        else if ([type isEqualToString:@"double"]) [cell simulateDoubleTap];
+        else if ([type isEqualToString:@"hold"]) [cell simulateLongPress];
+        else if ([type isEqualToString:@"scrub"]) [cell simulateScrubTo:(CGFloat)[params[@"f"] doubleValue]];
+        if (cell) TKLog(@"Gesture %@ done: at %.1f / %.1f s, 2x %d, saved %d", type, cell.currentTime, cell.duration, cell.fastPlayback, [TKSettings isSaved:cell.video.videoId]);
         return YES;
     }
     if ([target isEqualToString:@"back"]) {

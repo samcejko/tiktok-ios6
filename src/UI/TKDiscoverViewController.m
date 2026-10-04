@@ -17,7 +17,7 @@ enum { SecActions, SecCreators, SecCount };
 - (void)viewDidLoad
 {
     [super viewDidLoad];
-    self.title = L(@"Creators");
+    self.title = L(@"Followed creators");
     [[TKTheme shared] applyToTableView:self.tableView];
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(done)];
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(addCreator)];
@@ -44,7 +44,7 @@ enum { SecActions, SecCreators, SecCount };
 
 - (NSString *)tableView:(UITableView *)t titleForFooterInSection:(NSInteger)s
 {
-    if (s == SecCreators && ![TKSettings creators].count) return L(@"Add a few creators. Your feed mixes their newest videos and learns what you watch.");
+    if (s == SecCreators) return L(@"Optional. Your feed finds videos on its own and learns what you like from how you watch. Creators you follow just show up in it now and then.");
     return nil;
 }
 

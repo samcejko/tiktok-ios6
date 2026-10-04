@@ -30,7 +30,7 @@
 + (BOOL)verifyTLS;
 + (void)setVerifyTLS:(BOOL)value;
 
-// Creators the feed draws from (handles without @, newest added first)
+// Followed creators (optional): their videos join the feed now and then (handles without @, newest added first)
 + (NSArray *)creators;
 + (void)addCreator:(NSString *)handle;
 + (void)removeCreator:(NSString *)handle;
@@ -42,9 +42,7 @@
 + (void)saveVideoJSON:(NSDictionary *)json;
 + (void)unsaveVideo:(NSString *)videoId;
 
-// The local recommender's memory: per-creator score and per-video seen/skip
-+ (double)scoreForCreator:(NSString *)handle;
-+ (void)noteCreator:(NSString *)handle completed:(BOOL)completed saved:(BOOL)saved skipped:(BOOL)skipped;
+// Videos already shown (the feed does not bring them back; the taste itself lives in TKTaste)
 + (BOOL)hasSeenVideo:(NSString *)videoId;
 + (void)markVideoSeen:(NSString *)videoId;
 

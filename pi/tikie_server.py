@@ -10,6 +10,9 @@ on the Pi fixes it without touching the app.
 
 Endpoints (all JSON unless noted):
   GET /health
+  GET /discover?cat=<categoryType>&count=20[&maxh=1280]  a fresh batch from TikTok's logged-out Explore feed for one
+                                       topic, ready to play (H.264 URL + the session headers) with the features the
+                                       app's recommender learns from (topic, hashtags, sound, language...)
   GET /user?name=<handle>&count=30     a creator's recent videos (list of lightweight items)
   GET /resolve?id=<id|url>[&user=<handle>][&vcodec=h264][&maxh=1280]  one video with a fresh playable URL and
                                        the headers to send; an H.264 rendition by default (iOS 6 has no HEVC decoder)
@@ -18,6 +21,7 @@ Endpoints (all JSON unless noted):
   GET /yt/resolve?id=<youtube id|url>  fresh YouTube stream URLs for the Tubie app (see the YouTube section)
 Set TIKIE_KEY to require ?k=<key> (or X-Tikie-Key header) on every call when you expose this beyond the LAN.
 """
+import http.cookiejar
 import json
 import os
 import re
@@ -45,6 +49,7 @@ class TTLCache:
     def __init__(self):
         self._d = {}
         self._lock = threading.Lock()
+        self._puts = 0
 
     def get(self, key):
         with self._lock:
@@ -58,7 +63,12 @@ class TTLCache:
 
     def put(self, key, value, ttl):
         with self._lock:
-            self._d[key] = (time.time() + ttl, value)
+            now = time.time()
+            self._d[key] = (now + ttl, value)
+            self._puts += 1
+            if self._puts % 500 == 0:   # expired entries are otherwise only dropped when read again
+                for k in [k for k, v in self._d.items() if v[0] < now]:
+                    del self._d[k]
 
 CACHE = TTLCache()
 
@@ -268,6 +278,117 @@ def comments(ref, count):
     CACHE.put(ckey, out, 600 if ok else 60)   # a failure is retried after a minute, not ten
     return out
 
+# --- Discovery: TikTok's logged-out Explore feed --------------------------
+# tiktok.com/explore serves topic feeds to visitors without an account or a request signature, and every call
+# returns a fresh batch. Its items carry ready H.264 URLs that play with the cookies of the session that fetched
+# them, so a batch costs the Pi one small JSON request and no yt-dlp run.
+
+WEB_SESSION_TTL = 6 * 3600
+_WEB_LOCK = threading.Lock()
+_WEB = {"opener": None, "jar": None, "born": 0.0}
+
+def _web_session(fresh=False):
+    """The logged-out tiktok.com session (ttwid, tt_chain_token...) the Explore API and its video URLs belong to."""
+    with _WEB_LOCK:
+        if fresh or _WEB["opener"] is None or time.time() - _WEB["born"] > WEB_SESSION_TTL:
+            jar = http.cookiejar.CookieJar()
+            opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+            req = urllib.request.Request("https://www.tiktok.com/explore",
+                                         headers={"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9"})
+            with opener.open(req, timeout=20) as r:
+                r.read()
+            _WEB.update(opener=opener, jar=jar, born=time.time())
+        return _WEB["opener"], _WEB["jar"]
+
+def _pick_h264_web(bitrate_info, maxh):
+    """The Explore item's H.264 rendition whose long side best fits maxh (same rule as pick_format)."""
+    cands = []
+    for b in bitrate_info or []:
+        if not str(b.get("CodecType") or "").lower().startswith("h264"):
+            continue
+        pa = b.get("PlayAddr") or {}
+        urls = pa.get("UrlList") or []
+        if not urls:
+            continue
+        w, h = pa.get("Width") or 0, pa.get("Height") or 0
+        cands.append({"long": max(w, h), "rate": b.get("Bitrate") or 0, "url": urls[0], "w": w, "h": h})
+    if not cands:
+        return None
+    fit = [c for c in cands if 0 < c["long"] <= maxh]
+    if fit:
+        return max(fit, key=lambda c: (c["long"], c["rate"]))
+    return min(cands, key=lambda c: (c["long"] or 10 ** 6, -c["rate"]))
+
+def item_from_web(it, maxh):
+    """One Explore item -> a playable list item plus the features the app's recommender learns from."""
+    if it.get("isAd") or it.get("privateItem") or it.get("secret") or it.get("imagePost"):
+        return None
+    v = it.get("video") or {}
+    pick = _pick_h264_web(v.get("bitrateInfo"), maxh)
+    if not pick:
+        return None
+    a = it.get("author") or {}
+    m = it.get("music") or {}
+    st = it.get("stats") or {}
+    handle = norm_user(a.get("uniqueId"))
+    vid = str(it.get("id") or "")
+    if not vid:
+        return None
+    tags = []
+    for t in it.get("textExtra") or []:
+        name = (t.get("hashtagName") or "").strip().lower()
+        if name and name not in tags:
+            tags.append(name)
+    return {
+        "id": vid,
+        "author": handle,
+        "authorName": a.get("nickname") or handle,
+        "desc": it.get("desc") or "",
+        "cover": v.get("originCover") or v.get("cover"),
+        "duration": v.get("duration") or 0,
+        "likes": st.get("diggCount") or 0,
+        "comments": st.get("commentCount") or 0,
+        "plays": st.get("playCount") or 0,
+        "url": "https://www.tiktok.com/@%s/video/%s" % (handle or "_", vid),
+        "music": m.get("title") or "",
+        "musicId": str(m.get("id") or ""),
+        "musicOriginal": bool(m.get("original")),
+        "category": it.get("CategoryType") or 0,
+        "tags": tags[:10],
+        "lang": it.get("textLanguage") or "",
+        "created": it.get("createTime") or 0,
+        "playUrl": pick["url"],
+        "width": pick["w"],
+        "height": pick["h"],
+        "vcodec": "h264",
+    }
+
+def discover(cat, count, maxh):
+    """A fresh Explore batch for one topic. Returns (items, headers): the headers (session cookies) play every URL."""
+    count = max(1, min(count, 30))
+    raw, jar = [], None
+    for attempt in (0, 1):   # an empty answer usually means a stale session: start a new one and ask again
+        opener, jar = _web_session(fresh=(attempt == 1))
+        q = urllib.parse.urlencode({"aid": "1988", "count": count, "categoryType": cat})
+        req = urllib.request.Request("https://www.tiktok.com/api/explore/item_list/?" + q,
+                                     headers={"User-Agent": UA, "Referer": "https://www.tiktok.com/explore"})
+        with opener.open(req, timeout=15) as r:
+            data = json.loads(r.read().decode("utf-8", "replace") or "{}")
+        raw = data.get("itemList") or []
+        if raw:
+            break
+    headers = {"User-Agent": UA, "Referer": "https://www.tiktok.com/"}
+    cookie = "; ".join("%s=%s" % (c.name, c.value) for c in jar if "tiktok" in (c.domain or ""))
+    if cookie:
+        headers["Cookie"] = cookie
+    items = []
+    for it in raw:
+        x = item_from_web(it, maxh)
+        if x:
+            items.append(x)
+            CACHE.put("hdr:" + x["playUrl"], headers, 6 * 3600)   # for the /proxy fallback
+    return items, headers
+
 # --- YouTube (added for the Tubie iOS 6 app; everything above is unchanged) ------
 # Gives the phone a fresh, playable YouTube stream so it can get past the ~60 s PO-token wall that caps the
 # adaptive files when the device fetches them itself. Returns the best progressive MP4 (<=720p, H.264+AAC, plays
@@ -422,6 +543,15 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorized(q):
             return self._send_json({"error": "unauthorized"}, 401)
         try:
+            if path == "/discover":
+                try:
+                    cat = int(q.get("cat", ["120"])[0])
+                    count = int(q.get("count", ["20"])[0])
+                    maxh = int(q.get("maxh", ["1280"])[0])
+                except ValueError:
+                    raise ValueError("cat, count and maxh must be numbers")
+                items, headers = discover(cat, count, max(240, min(maxh, 4096)))
+                return self._send_json({"items": items, "headers": headers, "category": cat})
             if path == "/user":
                 return self._send_json({"items": user_list(q.get("name", [""])[0], int(q.get("count", ["30"])[0]))})
             if path == "/resolve":

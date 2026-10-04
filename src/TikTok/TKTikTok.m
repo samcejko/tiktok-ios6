@@ -38,6 +38,26 @@
     }];
 }
 
++ (TKHTTPTask *)discoverCategory:(NSInteger)category count:(NSInteger)count completion:(void (^)(NSArray *, NSError *))completion
+{
+    NSString *url = [self urlForPath:@"/discover" query:[NSString stringWithFormat:@"cat=%ld&count=%ld&%@", (long)category, (long)count, [self formatPreference]]];
+    if (!url) { completion(nil, [self notConfigured]); return nil; }
+    return [TKHTTP getJSON:url headers:nil completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        NSDictionary *batchHeaders = TKDict(TKDict(json)[@"headers"]);
+        NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+        NSMutableArray *videos = [NSMutableArray array];
+        for (NSDictionary *item in TKArr(TKDict(json)[@"items"])) {
+            TKVideo *v = [TKVideo videoFromJSON:TKDict(item)];
+            if (!v.playURL.length) continue;
+            if (!v.playHeaders) v.playHeaders = batchHeaders;   // the session cookies every URL of the batch plays with
+            v.fetchedAt = now;
+            [videos addObject:v];
+        }
+        completion(videos, nil);
+    }];
+}
+
 + (TKHTTPTask *)videosForCreator:(NSString *)handle count:(NSInteger)count completion:(void (^)(NSArray *, NSError *))completion
 {
     NSString *h = [handle hasPrefix:@"@"] ? [handle substringFromIndex:1] : handle;
@@ -60,6 +80,8 @@
     if (!r) return;
     video.playURL = r.playURL;
     video.playHeaders = r.playHeaders;
+    video.fetchedAt = [NSDate timeIntervalSinceReferenceDate];
+    if (!video.tags.count && r.tags.count) video.tags = r.tags;
     if (r.width) video.width = r.width;
     if (r.height) video.height = r.height;
     if (r.durationSeconds) video.durationSeconds = r.durationSeconds;

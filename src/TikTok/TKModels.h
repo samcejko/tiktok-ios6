@@ -16,9 +16,16 @@
 @property (nonatomic) NSInteger durationSeconds;
 @property (nonatomic) NSInteger width;
 @property (nonatomic) NSInteger height;
-// Filled by resolve:
+// What the recommender learns from (a /discover item carries all of it; other sources fill what they can)
+@property (nonatomic) NSInteger category;            // TikTok's topic id (Explore CategoryType), 0 = unknown
+@property (nonatomic, copy) NSArray *tags;           // hashtags, lowercased, without the #
+@property (nonatomic, copy) NSString *musicId;
+@property (nonatomic) BOOL musicOriginal;            // the creator's own sound: unique to the video, says nothing
+@property (nonatomic, copy) NSString *lang;          // TikTok's guess of the caption language ("en", "cs", "un")
+// Filled by resolve (or handed out ready by /discover):
 @property (nonatomic, copy) NSString *playURL;       // the TikTok CDN URL
 @property (nonatomic, copy) NSDictionary *playHeaders; // Referer/User-Agent/Cookie the CDN needs
+@property (nonatomic) NSTimeInterval fetchedAt;      // when playURL was handed out (it lasts about two days)
 
 + (instancetype)videoFromJSON:(NSDictionary *)json;
 - (NSDictionary *)toJSON;                             // for the local saved/cache store

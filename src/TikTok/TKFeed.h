@@ -1,20 +1,25 @@
 #import <Foundation/Foundation.h>
 #import "TKModels.h"
 
-// Our own "For You": it pulls the recent public videos of the creators you follow and orders them with a local
-// score (creators whose videos you finish or save rise, ones you skip fall), plus some randomness. No TikTok
-// account, no real FYP - just your sources, ranked by your behaviour.
+// Our own "For You". Candidates come from TikTok's logged-out Explore feed - a fresh batch per topic, so the supply
+// never runs out - and now and then from a creator you follow (optional; the feed needs none). Which topics to ask
+// for is drawn from what you liked (TKTaste); each next video is the best-scoring candidate with some randomness,
+// a share of pure exploration (large at first, never zero), and rules that keep the feed varied: not the same
+// creator twice within a few videos, rarely the same topic three times running.
 @interface TKFeed : NSObject
 
 @property (nonatomic, readonly) NSArray *videos;     // TKVideo, in feed order
 @property (nonatomic, readonly) BOOL loading;
 
-// Clears and loads the first batch from the followed creators.
+// A fresh start (the first batches); `videos` changes only when it completes
 - (void)reloadWithCompletion:(void (^)(NSError *error))completion;
-// Makes sure there are items at least `count` past `index`, fetching/ranking more when needed.
+// Makes sure there are items at least `count` past `index`, fetching more candidates when needed
 - (void)ensureAhead:(NSInteger)index by:(NSInteger)count completion:(void (^)(BOOL added))completion;
 
-// Behaviour feedback (drives the ranking and "seen" memory)
-- (void)noteVideo:(TKVideo *)video completed:(BOOL)completed saved:(BOOL)saved skipped:(BOOL)skipped;
+// What the viewer did: the lessons the taste learns from
+- (void)noteWatched:(TKVideo *)video seconds:(NSTimeInterval)watched duration:(NSTimeInterval)duration;
+- (void)noteSaved:(TKVideo *)video;
+- (void)noteNotInterested:(TKVideo *)video;
+- (void)noteEngaged:(TKVideo *)video weight:(double)weight;          // comments opened, link copied
 
 @end

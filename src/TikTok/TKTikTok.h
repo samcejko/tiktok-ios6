@@ -9,6 +9,10 @@
 + (BOOL)configured;                          // a server base URL is set
 + (void)checkHealth:(void (^)(BOOL ok, NSString *info, NSError *error))completion;
 
+// A fresh batch from TikTok's Explore feed for one topic (an Explore CategoryType). Ready to play: playURL and
+// playHeaders are set, and every item carries the features the recommender learns from.
++ (TKHTTPTask *)discoverCategory:(NSInteger)category count:(NSInteger)count completion:(void (^)(NSArray *videos, NSError *error))completion;
+
 // A creator's recent public videos (lightweight items; call resolveVideo: before playing one)
 + (TKHTTPTask *)videosForCreator:(NSString *)handle count:(NSInteger)count completion:(void (^)(NSArray *videos, NSError *error))completion;
 

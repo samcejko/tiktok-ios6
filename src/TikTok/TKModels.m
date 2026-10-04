@@ -21,9 +21,30 @@
     v.durationSeconds = TKInt(json[@"duration"]);
     v.width = TKInt(json[@"width"]);
     v.height = TKInt(json[@"height"]);
+    v.category = TKInt(json[@"category"]);
+    NSMutableArray *tags = [NSMutableArray array];
+    for (id t in TKArr(json[@"tags"])) { NSString *s = [TKStr(t) lowercaseString]; if (s.length && ![tags containsObject:s]) [tags addObject:s]; }
+    v.tags = tags.count ? tags : [self hashtagsInText:v.desc];
+    v.musicId = TKStr(json[@"musicId"]);
+    v.musicOriginal = TKBool(json[@"musicOriginal"]);
+    v.lang = TKStr(json[@"lang"]);
     v.playURL = TKStr(json[@"playUrl"]);
     if ([json[@"headers"] isKindOfClass:[NSDictionary class]]) v.playHeaders = json[@"headers"];
     return v;
+}
+
+// #words of a caption, for sources that do not list the hashtags separately
++ (NSArray *)hashtagsInText:(NSString *)text
+{
+    NSMutableArray *out = [NSMutableArray array];
+    if (!text.length) return out;
+    static NSRegularExpression *re;
+    if (!re) re = [NSRegularExpression regularExpressionWithPattern:@"#([\\w]+)" options:0 error:NULL];
+    for (NSTextCheckingResult *m in [re matchesInString:text options:0 range:NSMakeRange(0, text.length)]) {
+        NSString *tag = [[text substringWithRange:[m rangeAtIndex:1]] lowercaseString];
+        if (tag.length && ![out containsObject:tag]) [out addObject:tag];
+    }
+    return out;
 }
 
 - (NSDictionary *)toJSON
@@ -42,6 +63,11 @@
     d[@"duration"] = @(self.durationSeconds);
     d[@"width"] = @(self.width);
     d[@"height"] = @(self.height);
+    if (self.category) d[@"category"] = @(self.category);
+    if (self.tags.count) d[@"tags"] = self.tags;
+    if (self.musicId.length) d[@"musicId"] = self.musicId;
+    d[@"musicOriginal"] = @(self.musicOriginal);
+    if (self.lang.length) d[@"lang"] = self.lang;
     return d;
 }
 

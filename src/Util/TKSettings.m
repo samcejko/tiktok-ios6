@@ -20,7 +20,6 @@ static const NSUInteger TKMaxSeen = 4000;
         @"verifyTLS": @YES,
         @"creators": @[],
         @"savedVideos": @[],
-        @"creatorScores": @{},
         @"seenVideos": @[],
         @"recentSearches": @[],
     }];
@@ -161,29 +160,7 @@ static const NSUInteger TKMaxSeen = 4000;
     [self notifyLibrary];
 }
 
-#pragma mark - Recommender memory
-
-+ (double)scoreForCreator:(NSString *)handle
-{
-    NSNumber *n = [DEF dictionaryForKey:@"creatorScores"][[self normHandle:handle]];
-    return n ? n.doubleValue : 0.0;
-}
-
-+ (void)noteCreator:(NSString *)handle completed:(BOOL)completed saved:(BOOL)saved skipped:(BOOL)skipped
-{
-    NSString *h = [self normHandle:handle];
-    if (!h.length) return;
-    NSMutableDictionary *scores = [[DEF dictionaryForKey:@"creatorScores"] mutableCopy] ?: [NSMutableDictionary dictionary];
-    double s = [scores[h] doubleValue];
-    if (saved) s += 3.0;
-    if (completed) s += 1.0;
-    if (skipped) s -= 1.0;
-    s *= 0.98;                               // slow decay so old taste fades
-    if (s > 50) s = 50;
-    if (s < -20) s = -20;
-    scores[h] = @(s);
-    [DEF setObject:scores forKey:@"creatorScores"];
-}
+#pragma mark - Seen videos
 
 + (BOOL)hasSeenVideo:(NSString *)videoId
 {

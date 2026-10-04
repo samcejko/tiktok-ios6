@@ -13,6 +13,23 @@
 #import "TKUtils.h"
 #import "TKCommon.h"
 
+enum { TKSheetMenu = 1, TKSheetVideo = 2 };
+
+// The feed pages vertically only: a sideways drag belongs to the video under it (its scrubber).
+@interface TKPagerScrollView : UIScrollView
+@end
+
+@implementation TKPagerScrollView
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)g
+{
+    if (g == self.panGestureRecognizer) {
+        CGPoint v = [self.panGestureRecognizer velocityInView:self];
+        if (fabs(v.x) > fabs(v.y)) return NO;
+    }
+    return [super gestureRecognizerShouldBegin:g];
+}
+@end
+
 @interface TKFeedViewController () <UIScrollViewDelegate, TKVideoCellDelegate, UIActionSheetDelegate>
 @property (nonatomic, strong) UIScrollView *scroll;
 @property (nonatomic, strong) TKFeed *feed;              // live mode
@@ -28,6 +45,7 @@
 @property (nonatomic) BOOL muted;
 @property (nonatomic) BOOL appeared;
 @property (nonatomic) BOOL visible;        // on screen (not covered by a full-screen controller)
+@property (nonatomic, weak) TKVideoCell *menuCell;       // the page whose menu (hold) is open
 @end
 
 @implementation TKFeedViewController
@@ -64,7 +82,7 @@
     self.view.backgroundColor = [UIColor blackColor];
     self.wantsFullScreenLayout = YES;
 
-    self.scroll = [[UIScrollView alloc] initWithFrame:self.view.bounds];
+    self.scroll = [[TKPagerScrollView alloc] initWithFrame:self.view.bounds];
     self.scroll.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.scroll.pagingEnabled = YES;
     self.scroll.showsVerticalScrollIndicator = NO;
@@ -88,7 +106,7 @@
 
     self.messageButton = [UIButton buttonWithType:UIButtonTypeRoundedRect];
     [self.messageButton setTitle:L(@"Set up") forState:UIControlStateNormal];
-    [self.messageButton addTarget:self action:@selector(openDiscover) forControlEvents:UIControlEventTouchUpInside];
+    [self.messageButton addTarget:self action:@selector(openSettings) forControlEvents:UIControlEventTouchUpInside];
     self.messageButton.hidden = YES;
     [self.view addSubview:self.messageButton];
 
@@ -118,6 +136,7 @@
     }
 
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(libraryChanged) name:TKLibraryDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(settingsChanged) name:TKSettingsDidChangeNotification object:nil];
 }
 
 - (void)dealloc { [[NSNotificationCenter defaultCenter] removeObserver:self]; }
@@ -141,7 +160,7 @@
 }
 
 - (BOOL)prefersStatusBarHidden { return YES; }
-- (BOOL)shouldAutorotate { return !self.fixedMode ? NO : NO; }
+- (BOOL)shouldAutorotate { return NO; }
 - (NSUInteger)supportedInterfaceOrientations { return UIInterfaceOrientationMaskPortrait; }
 
 - (void)viewDidAppear:(BOOL)animated
@@ -166,28 +185,30 @@
     [[self cellAt:self.currentIndex] setActive:NO];
 }
 
+- (TKVideoCell *)currentCell { return [self cellAt:self.currentIndex]; }
+
 #pragma mark - Live feed loading
 
 - (void)loadFeed
 {
+    if (self.fixedMode) return;
     if (![TKTikTok configured]) {
         [self showMessage:L(@"Set your server address to start.\nSettings are behind the gear.") button:L(@"Open Settings") action:@selector(openSettings)];
-        return;
-    }
-    if (![TKSettings creators].count) {
-        [self showMessage:L(@"Add a creator and your feed fills up with their videos.") button:L(@"Add creators") action:@selector(openDiscover)];
         return;
     }
     [self showMessage:nil button:nil action:nil];
     [self.spinner startAnimating];
     [self.feed reloadWithCompletion:^(NSError *error) {
         [self.spinner stopAnimating];
-        if (error && [self count] == 0) {
-            [self showMessage:error.localizedDescription button:L(@"Try again") action:@selector(loadFeed)];
+        if (error) {
+            if ([self count] == 0) [self showMessage:error.localizedDescription button:L(@"Try again") action:@selector(loadFeed)];
             return;
         }
+        // a fresh list: the pages on screen belong to the old one
+        [self removeAllCells];
         self.currentIndex = 0;
         [self.view setNeedsLayout];
+        [self.view layoutIfNeeded];
         [self refreshWindow];
         // A video link opened while the feed was loading covers it: playing now would sound under that video.
         // viewDidAppear starts the page once the feed is on screen again.
@@ -209,7 +230,13 @@
 
 - (void)libraryChanged
 {
-    if (!self.fixedMode && self.appeared && [self count] == 0) [self loadFeed];
+    if (!self.fixedMode && self.appeared && [self count] == 0 && !self.feed.loading) [self loadFeed];
+}
+
+// the server address was just set: the empty feed can start now
+- (void)settingsChanged
+{
+    if (!self.fixedMode && self.appeared && [self count] == 0 && !self.feed.loading && [TKTikTok configured]) [self loadFeed];
 }
 
 #pragma mark - Cell window
@@ -230,6 +257,12 @@
     return cell;
 }
 
+- (void)removeAllCells
+{
+    for (NSNumber *k in [self.cells allKeys]) { [self.cells[k] teardown]; [self.cells[k] removeFromSuperview]; }
+    [self.cells removeAllObjects];
+}
+
 // keep cells for [current-1 .. current+1], tear down the rest
 - (void)refreshWindow
 {
@@ -245,10 +278,10 @@
 {
     for (NSNumber *k in self.cells) [self.cells[k] setActive:(k.integerValue == index)];
     [self prepareIndex:index play:YES];
-    [self prepareIndex:index + 1 play:NO];   // prefetch the next
+    [self prepareIndex:index + 1 play:NO];   // buffer the next one, so the swipe starts at once
 }
 
-// resolve the direct URL if needed, then play (or just prepare)
+// resolve the direct URL if needed, then play (or prepare: buffer without a picture)
 - (void)prepareIndex:(NSInteger)index play:(BOOL)play
 {
     TKVideo *video = [self videoAt:index];
@@ -256,6 +289,7 @@
     if (!video || !cell) return;
     if (video.playURL.length) {
         if (play || index == self.currentIndex) [cell startPlaybackMuted:self.muted];
+        else [cell preparePlayback];
         return;
     }
     [TKTikTok resolveVideo:video completion:^(TKVideo *resolved, NSError *error) {
@@ -266,6 +300,7 @@
         TKVideoCell *stillThere = [self cellAt:index];
         if (!stillThere) return;
         if (index == self.currentIndex || play) [stillThere startPlaybackMuted:self.muted];
+        else [stillThere preparePlayback];
     }];
 }
 
@@ -282,24 +317,46 @@
     if (page >= [self count]) page = [self count] - 1;
     if (page == self.currentIndex) return;
 
+    // the lesson: how long the page we leave was really watched
     TKVideo *leaving = [self videoAt:self.currentIndex];
     TKVideoCell *leavingCell = [self cellAt:self.currentIndex];
-    BOOL completed = leavingCell.playedSeconds >= MAX(2.0, leaving.durationSeconds * 0.6);
-    if (!self.fixedMode && leaving) [self.feed noteVideo:leaving completed:completed saved:[TKSettings isSaved:leaving.videoId] skipped:(!completed)];
-    if (leaving) [TKSettings markVideoSeen:leaving.videoId];
+    if (leaving && leavingCell) {
+        NSTimeInterval watched = [leavingCell takeWatchedSeconds];
+        if (!self.fixedMode) [self.feed noteWatched:leaving seconds:watched duration:leavingCell.duration];
+        [TKSettings markVideoSeen:leaving.videoId];
+    }
 
     self.currentIndex = page;
     [self refreshWindow];
     [self setActiveIndex:page];
 
-    if (!self.fixedMode && page >= [self count] - 3) {
-        [self.feed ensureAhead:page by:6 completion:^(BOOL added) {
-            if (added) { [self.view setNeedsLayout]; [self refreshWindow]; }
+    if (!self.fixedMode && page >= [self count] - 4) {
+        [self.feed ensureAhead:page by:8 completion:^(BOOL added) {
+            if (!added) return;
+            [self.view setNeedsLayout];
+            [self.view layoutIfNeeded];
+            [self refreshWindow];
+            [self prepareIndex:self.currentIndex + 1 play:NO];
         }];
     }
 }
 
+- (void)advance
+{
+    NSInteger next = self.currentIndex + 1;
+    if (next < [self count]) [self.scroll setContentOffset:CGPointMake(0, self.view.bounds.size.height * next) animated:YES];
+}
+
 #pragma mark - Cell delegate
+
+- (void)saveVideoOf:(TKVideoCell *)cell
+{
+    TKVideo *v = cell.video;
+    if (!v || [TKSettings isSaved:v.videoId]) return;
+    [TKSettings saveVideoJSON:[v toJSON]];
+    [cell updateSavedState:YES];
+    if (!self.fixedMode) [self.feed noteSaved:v];
+}
 
 - (void)videoCellDidTapSave:(TKVideoCell *)cell
 {
@@ -308,14 +365,16 @@
         [TKSettings unsaveVideo:v.videoId];
         [cell updateSavedState:NO];
     } else {
-        [TKSettings saveVideoJSON:[v toJSON]];
-        [cell updateSavedState:YES];
-        if (!self.fixedMode) [self.feed noteVideo:v completed:NO saved:YES skipped:NO];
+        [self saveVideoOf:cell];
     }
 }
 
+// double tap only ever saves (like a like: a second double tap does not undo it)
+- (void)videoCellDidDoubleTap:(TKVideoCell *)cell { [self saveVideoOf:cell]; }
+
 - (void)videoCellDidTapComments:(TKVideoCell *)cell
 {
+    if (!self.fixedMode) [self.feed noteEngaged:cell.video weight:0.4];
     // in a navigation controller like the other sheets: its bar carries the title and the Done button
     // (presented bare, the sheet had no way to close)
     [self present:[[TKCommentsViewController alloc] initWithVideo:cell.video]];
@@ -323,6 +382,7 @@
 
 - (void)videoCellDidTapShare:(TKVideoCell *)cell
 {
+    if (!self.fixedMode) [self.feed noteEngaged:cell.video weight:0.5];
     [TKExternalOpen presentShareSheetForURL:[NSURL URLWithString:[cell.video shareURL]] from:self anchor:cell];
 }
 
@@ -330,8 +390,43 @@
 {
     if (cell != [self cellAt:self.currentIndex]) return;
     if (![TKSettings autoAdvance]) return;
-    NSInteger next = self.currentIndex + 1;
-    if (next < [self count]) [self.scroll setContentOffset:CGPointMake(0, self.view.bounds.size.height * next) animated:YES];
+    [self advance];
+}
+
+// hold = the video's menu
+- (void)videoCell:(TKVideoCell *)cell didLongPressAt:(CGPoint)point
+{
+    if (cell != [self cellAt:self.currentIndex] || !cell.video) return;
+    self.menuCell = cell;
+    UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil delegate:self cancelButtonTitle:nil destructiveButtonTitle:nil otherButtonTitles:nil];
+    sheet.tag = TKSheetVideo;
+    [sheet addButtonWithTitle:cell.fastPlayback ? L(@"Play at normal speed") : L(@"Play at 2× speed")];
+    [sheet addButtonWithTitle:L(@"Not interested")];
+    [sheet addButtonWithTitle:L(@"Copy link")];
+    sheet.cancelButtonIndex = [sheet addButtonWithTitle:L(@"Cancel")];
+    if (TKIsPad()) [sheet showFromRect:CGRectMake(point.x - 1, point.y - 1, 2, 2) inView:cell animated:YES];
+    else [sheet showInView:self.view];
+}
+
+- (void)videoMenuChose:(NSInteger)index
+{
+    TKVideoCell *cell = self.menuCell;
+    TKVideo *v = cell.video;
+    if (!cell || !v) return;
+    if (index == 0) {
+        BOOL fast = !cell.fastPlayback;
+        if ([cell setFastPlayback:fast]) [cell showToast:fast ? L(@"2× speed") : L(@"Normal speed")];
+        else [cell showToast:L(@"This video cannot play faster.")];
+    } else if (index == 1) {
+        if (!self.fixedMode) [self.feed noteNotInterested:v];
+        [TKSettings markVideoSeen:v.videoId];
+        [cell showToast:L(@"Got it, fewer like this")];
+        [self performSelector:@selector(advance) withObject:nil afterDelay:0.6];
+    } else if (index == 2) {
+        [UIPasteboard generalPasteboard].string = [v shareURL];
+        [cell showToast:L(@"Link copied")];
+        if (!self.fixedMode) [self.feed noteEngaged:v weight:0.5];
+    }
 }
 
 #pragma mark - Menu
@@ -340,8 +435,9 @@
 {
     if (self.fixedMode) { [self toggleMute]; return; }
     UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil delegate:self cancelButtonTitle:nil destructiveButtonTitle:nil otherButtonTitles:nil];
+    sheet.tag = TKSheetMenu;
     [sheet addButtonWithTitle:self.muted ? L(@"Unmute") : L(@"Mute")];
-    [sheet addButtonWithTitle:L(@"Creators")];
+    [sheet addButtonWithTitle:L(@"Followed creators")];
     [sheet addButtonWithTitle:L(@"Saved")];
     [sheet addButtonWithTitle:L(@"Refresh feed")];
     [sheet addButtonWithTitle:L(@"Settings")];
@@ -351,6 +447,8 @@
 
 - (void)actionSheet:(UIActionSheet *)sheet clickedButtonAtIndex:(NSInteger)index
 {
+    if (index < 0 || index == sheet.cancelButtonIndex) return;
+    if (sheet.tag == TKSheetVideo) { [self videoMenuChose:index]; return; }
     switch (index) {
         case 0: [self toggleMute]; break;
         case 1: [self openDiscover]; break;
