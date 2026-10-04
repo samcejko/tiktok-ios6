@@ -4,13 +4,14 @@
 #import "TKCommon.h"
 
 @interface TKFeed ()
-@property (nonatomic, strong) NSMutableArray *videos;
 @property (nonatomic, strong) NSMutableDictionary *pools;   // handle -> NSMutableArray of TKVideo not yet placed
 @property (nonatomic, strong) NSMutableSet *placedIds;
 @property (nonatomic) BOOL loading;
 @end
 
-@implementation TKFeed
+@implementation TKFeed {
+    NSMutableArray *_videos;
+}
 
 - (instancetype)init
 {
@@ -21,6 +22,8 @@
     }
     return self;
 }
+
+- (NSArray *)videos { return _videos; }
 
 #pragma mark - Loading creator pools
 
@@ -89,11 +92,11 @@
 - (NSInteger)appendUpTo:(NSInteger)wanted
 {
     NSInteger added = 0;
-    NSString *last = [(TKVideo *)self.videos.lastObject author];
+    NSString *last = [(TKVideo *)_videos.lastObject author];
     while (added < wanted) {
         TKVideo *v = [self placeOneAvoiding:last];
         if (!v) break;
-        [self.videos addObject:v];
+        [_videos addObject:v];
         last = v.author;
         added++;
     }
@@ -102,7 +105,7 @@
 
 - (void)reloadWithCompletion:(void (^)(NSError *))completion
 {
-    [self.videos removeAllObjects];
+    [_videos removeAllObjects];
     [self.pools removeAllObjects];
     [self.placedIds removeAllObjects];
     if (![TKTikTok configured]) { if (completion) completion(TKMakeError(TKErrorAPI, L(@"Set the server address in Settings first."))); return; }

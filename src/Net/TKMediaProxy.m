@@ -329,7 +329,7 @@ static BOOL TKProxyPortAnswers(uint16_t port)
             entry.upstreamHeaders = upstreamHeaders;
             ident = [self addEntry:entry key:key];
         } else if (upstreamHeaders.count) {
-            self.entries[ident].upstreamHeaders = upstreamHeaders;
+            ((TKProxyEntry *)self.entries[ident]).upstreamHeaders = upstreamHeaders;
         }
         if (playlist) {
             return [NSString stringWithFormat:@"http://127.0.0.1:%u/%@/d/%@/%@", self.port, self.secret, ident, TKProxyPlaylistName];

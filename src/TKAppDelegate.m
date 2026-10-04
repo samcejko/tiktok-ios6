@@ -116,6 +116,13 @@ static BOOL TKPressView(UIView *v, NSString *text)
     NSDictionary *params = query.length ? [TKUtils parseQuery:query] : @{};
     if ([target hasPrefix:@"play/"]) { [self playVideoId:[target substringFromIndex:@"play/".length] author:nil]; return YES; }
     if ([target isEqualToString:@"add"] && [params[@"u"] length]) { [TKSettings addCreator:params[@"u"]]; return YES; }
+    // tikie:server?url=<base>&key=<key> - set the helper address (also how you hand the app to other people)
+    if ([target isEqualToString:@"server"]) {
+        if ([params[@"url"] length]) [TKSettings setServerBaseURL:params[@"url"]];
+        if (params[@"key"]) [TKSettings setServerKey:params[@"key"]];
+        [TKUtils alertWithTitle:L(@"Settings") message:[TKSettings serverBaseURL].length ? [NSString stringWithFormat:@"%@%@", [TKSettings serverBaseURL], [TKSettings serverKey].length ? L(@" (key set)") : @""] : L(@"Not set")];
+        return YES;
+    }
 
     BOOL debug = [[NSFileManager defaultManager] fileExistsAtPath:[[TKUtils documentsPath] stringByAppendingPathComponent:@"debug"]];
     if (!debug) return YES;
