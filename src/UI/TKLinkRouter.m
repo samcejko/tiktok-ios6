@@ -1,6 +1,7 @@
 #import "TKLinkRouter.h"
 #import "TKFeedViewController.h"
 #import "TKProfileViewController.h"
+#import "TKLivePlayerViewController.h"
 #import "TKTikTok.h"
 #import "TKModels.h"
 #import "TKTheme.h"
@@ -80,8 +81,24 @@
     NSString *handle = [self handleIn:path];
     NSString *vid = [self digitsAfter:@"/video/" in:path] ?: [self digitsAfter:@"/photo/" in:path];
     if (vid) { [self openVideoId:vid author:handle]; return YES; }
+    if (handle && [[[path lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"/"]] hasSuffix:@"/live"]) {
+        [self openLiveOf:handle];
+        return YES;
+    }
     if (handle) { [self openProfile:handle]; return YES; }
     return NO;
+}
+
+// "tiktok.com/@name/live": the room comes from their profile; when they are not live, the profile itself
++ (void)openLiveOf:(NSString *)handle
+{
+    [self busy:YES];
+    [TKTikTok profileForUser:handle completion:^(TKProfile *profile, NSError *error) {
+        [self busy:NO];
+        if (profile.liveRoom.length) { [self openLiveRoom:profile.liveRoom]; return; }
+        [self openProfile:handle];
+        if (profile) [TKUtils alertWithTitle:L(@"Live now") message:[NSString stringWithFormat:L(@"@%@ is not live right now."), profile.handle.length ? profile.handle : handle]];
+    }];
 }
 
 + (void)openVideoId:(NSString *)videoId author:(NSString *)author
@@ -104,7 +121,11 @@
 
 + (void)openLiveRoom:(NSString *)roomId
 {
-    // (the live player comes with the FLV repacking in the media proxy)
+    NSString *digits = [[roomId componentsSeparatedByCharactersInSet:[[NSCharacterSet decimalDigitCharacterSet] invertedSet]] componentsJoinedByString:@""];
+    if (!digits.length) return;
+    TKLivePlayerViewController *live = [[TKLivePlayerViewController alloc] initWithRoomId:digits];
+    live.modalPresentationStyle = UIModalPresentationFullScreen;
+    [[self topController] presentViewController:live animated:YES completion:nil];
 }
 
 @end

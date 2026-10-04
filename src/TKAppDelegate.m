@@ -1,5 +1,6 @@
 #import "TKAppDelegate.h"
 #import "TKFeedViewController.h"
+#import "TKLivePlayerViewController.h"
 #import "TKVideoCell.h"
 #import "TKTaste.h"
 #import "TKLinkRouter.h"
@@ -122,6 +123,7 @@ static BOOL TKPressView(UIView *v, NSString *text)
         TKLog(@"Top: %@, server %@ (%@), saved %lu, hidden languages %@, proxy %@", NSStringFromClass([top class]), [TKSettings serverBaseURL],
               [TKSettings serverKey].length ? @"keyed" : @"no key", (unsigned long)[TKSettings savedVideos].count,
               [[TKSettings hiddenLanguages] componentsJoinedByString:@","], [[TKMediaProxy shared] statsDescription]);
+        TKLog(@"Live: %@", [TKLivePlayerViewController debugState]);
         return YES;
     }
     if ([target isEqualToString:@"proxylog"]) { [TKMediaProxy shared].logRequests = ![params[@"on"] isEqualToString:@"0"]; return YES; }

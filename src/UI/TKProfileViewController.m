@@ -60,6 +60,7 @@ static const CGFloat TKAvatarSize = 84;
 @property (nonatomic, strong) UILabel *handleLabel;
 @property (nonatomic, strong) UILabel *statsLabel;
 @property (nonatomic, strong) UILabel *bioLabel;
+@property (nonatomic, strong) UIButton *liveButton;     // while they are live
 + (CGFloat)heightForProfile:(TKProfile *)profile width:(CGFloat)width;
 - (void)showProfile:(TKProfile *)profile handle:(NSString *)handle;
 @end
@@ -71,6 +72,7 @@ static const CGFloat TKAvatarSize = 84;
 + (CGFloat)heightForProfile:(TKProfile *)profile width:(CGFloat)width
 {
     CGFloat h = 16 + TKAvatarSize + 10 + 22 + 18 + 6 + 18 + 12;
+    if (profile.liveRoom.length) h += 46;
     if (profile.bio.length) {
         CGSize s = [[TKUtils displayText:profile.bio] sizeWithFont:[self bioFont] constrainedToSize:CGSizeMake(width - 40, 120) lineBreakMode:NSLineBreakByWordWrapping];
         h += ceilf(s.height) + 10;
@@ -102,6 +104,15 @@ static const CGFloat TKAvatarSize = 84;
         _statsLabel = [self label:[UIFont boldSystemFontOfSize:13]];
         _bioLabel = [self label:[TKProfileHeader bioFont]];
         _bioLabel.numberOfLines = 0;
+        _liveButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        _liveButton.backgroundColor = [[TKTheme shared] liveColor];
+        _liveButton.layer.cornerRadius = 6;
+        _liveButton.titleLabel.font = [UIFont boldSystemFontOfSize:15];
+        [_liveButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        [_liveButton setTitleColor:[UIColor colorWithWhite:1 alpha:0.6] forState:UIControlStateHighlighted];
+        [_liveButton setTitle:[@"●  " stringByAppendingString:L(@"Watch live")] forState:UIControlStateNormal];
+        _liveButton.hidden = YES;
+        [self addSubview:_liveButton];
     }
     return self;
 }
@@ -114,6 +125,9 @@ static const CGFloat TKAvatarSize = 84;
     self.handleLabel.textColor = [theme secondaryTextColor];
     self.statsLabel.textColor = [theme secondaryTextColor];
     [self.avatar setImageURL:p.avatarURL placeholder:nil];
+    self.avatar.layer.borderColor = [[TKTheme shared] liveColor].CGColor;
+    self.avatar.layer.borderWidth = p.liveRoom.length ? 3 : 0;
+    self.liveButton.hidden = !p.liveRoom.length;
     NSString *name = p.name.length ? [TKUtils displayText:p.name] : handle;
     self.nameLabel.text = p.verified ? [name stringByAppendingString:@" ✓"] : name;
     self.handleLabel.text = [@"@" stringByAppendingString:p.handle.length ? p.handle : handle];
@@ -138,7 +152,11 @@ static const CGFloat TKAvatarSize = 84;
     y += 18 + 6;
     self.statsLabel.frame = CGRectMake(10, y, w - 20, 18);
     y += 18 + 10;
-    CGSize s = [self.bioLabel.text sizeWithFont:self.bioLabel.font constrainedToSize:CGSizeMake(w - 40, 120) lineBreakMode:NSLineBreakByWordWrapping];
+    if (!self.liveButton.hidden) {
+        self.liveButton.frame = CGRectMake(floorf((w - 200) / 2), y, 200, 36);
+        y += 46;
+    }
+    CGSize s =[self.bioLabel.text sizeWithFont:self.bioLabel.font constrainedToSize:CGSizeMake(w - 40, 120) lineBreakMode:NSLineBreakByWordWrapping];
     self.bioLabel.frame = CGRectMake(20, y, w - 40, ceilf(s.height));
 }
 
@@ -250,7 +268,14 @@ static const CGFloat TKAvatarSize = 84;
 {
     TKProfileHeader *header = [cv dequeueReusableSupplementaryViewOfKind:kind withReuseIdentifier:TKHeaderId forIndexPath:ip];
     [header showProfile:self.profile handle:self.handle];
+    [header.liveButton removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+    [header.liveButton addTarget:self action:@selector(openLive) forControlEvents:UIControlEventTouchUpInside];
     return header;
+}
+
+- (void)openLive
+{
+    if (self.profile.liveRoom.length) [TKLinkRouter openLiveRoom:self.profile.liveRoom];
 }
 
 - (CGSize)collectionView:(UICollectionView *)cv layout:(UICollectionViewLayout *)layout referenceSizeForHeaderInSection:(NSInteger)section

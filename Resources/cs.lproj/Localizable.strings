@@ -1,6 +1,6 @@
 /* Tikie - čeština */
 
-"%@ viewers" = "%@ zhlédnutí";
+"%@ viewers" = "%@ diváků";
 "%ld days ago" = "před %ld dny";
 "%ld h ago" = "před %ld h";
 "%ld min" = "%ld min";
@@ -163,3 +163,12 @@
 "Paste a TikTok link: a video, a profile or a live stream." = "Vlož odkaz z TikToku: video, profil nebo živé vysílání.";
 "That does not look like a TikTok link." = "To nevypadá jako odkaz z TikToku.";
 "This live stream could not be loaded." = "Živé vysílání se nepodařilo načíst.";
+"Live now" = "Živě";
+"Watch live" = "Sledovat živě";
+"@%@ is not live right now." = "@%@ teď nevysílá.";
+"This live stream has ended." = "Toto živé vysílání skončilo.";
+"This live stream cannot be played on this device." = "Toto živé vysílání nejde na tomto zařízení přehrát.";
+"The live stream keeps breaking off." = "Živé vysílání se pořád přerušuje.";
+"The live stream ended." = "Živé vysílání skončilo.";
+"Looking for live streams…" = "Hledám živá vysílání…";
+"Nobody from the feed is live right now. Pull down to look again." = "Teď nikdo z feedu nevysílá. Stáhni seznam dolů a zkus to znovu.";

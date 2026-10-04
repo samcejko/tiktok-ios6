@@ -1,5 +1,6 @@
 #import "TKMediaProxy.h"
 #import "TKHTTPRequest.h"
+#import "TKLiveRemux.h"
 #import "TKSettings.h"
 #import "TKCommon.h"
 
@@ -20,11 +21,13 @@ typedef NS_ENUM(NSInteger, TKProxyEntryKind) {
     TKProxyEntryFile = 0,       // /<secret>/u/<id>/<name>: one absolute URL
     TKProxyEntryDirectory,      // /<secret>/d/<id>/<path>: a playlist and whatever it names relative to itself
     TKProxyEntryText,           // /<secret>/t/<id>/<name>: a playlist written by the app
+    TKProxyEntryLive,           // /<secret>/l/<id>/live.m3u8 and <n>.ts: a live FLV stream repacked on the device
 };
 
 @interface TKProxyEntry : NSObject
 @property (nonatomic) TKProxyEntryKind kind;
 @property (nonatomic, strong) NSURL *url;
+@property (nonatomic, strong) TKLiveRemux *remux;
 @property (nonatomic, copy) NSString *text;
 @property (nonatomic, copy) NSDictionary *upstreamHeaders;   // extra headers to send to the origin (TikTok CDN wants Referer/UA)
 @end
@@ -302,6 +305,7 @@ static BOOL TKProxyPortAnswers(uint16_t port)
             NSString *prefix = e.kind == TKProxyEntryFile ? @"u:" : @"d:";
             [self.idsByURL removeObjectForKey:[prefix stringByAppendingString:e.url.absoluteString]];
         }
+        [e.remux stop];
         [self.entries removeObjectForKey:old];
         [order removeObjectAtIndex:0];
     }
@@ -353,6 +357,57 @@ static BOOL TKProxyPortAnswers(uint16_t port)
         NSString *ident = [self addEntry:entry key:nil];
         return [NSString stringWithFormat:@"http://127.0.0.1:%u/%@/t/%@/master.m3u8", self.port, self.secret, ident];
     }
+}
+
+- (NSString *)proxyURLForLiveFLV:(NSURL *)url headers:(NSDictionary *)headers
+{
+    if (!url.host.length) return nil;
+    @synchronized (self) {
+        if (self.listenFD < 0) return nil;
+        TKProxyEntry *entry = [[TKProxyEntry alloc] init];
+        entry.kind = TKProxyEntryLive;
+        entry.url = url;
+        entry.remux = [[TKLiveRemux alloc] initWithURL:url headers:headers];
+        NSString *ident = [self addEntry:entry key:nil];
+        [entry.remux start];
+        return [NSString stringWithFormat:@"http://127.0.0.1:%u/%@/l/%@/live.m3u8", self.port, self.secret, ident];
+    }
+}
+
+- (void)stopLiveStreams
+{
+    @synchronized (self) {
+        for (TKProxyEntry *e in [self.entries allValues]) if (e.kind == TKProxyEntryLive) [e.remux stop];
+    }
+}
+
+- (void)serveLive:(TKLiveRemux *)remux name:(NSString *)name method:(NSString *)method to:(int)fd
+{
+    if ([name isEqualToString:@"live.m3u8"]) {
+        // the first time it waits for three segments (about six seconds of the stream): a live playlist with fewer
+        // makes the player stall at once
+        NSString *text = [remux playlistWaitingForSegments:3 timeout:25];
+        if (!text) {
+            if (remux.failure) TKLog(@"live: no playlist: %@", remux.failure);
+            [self countServed:@"HTTP 502" bytes:0];
+            TKSendStatus(fd, 502);
+            return;
+        }
+        [self sendPlaylist:text method:method to:fd];
+        return;
+    }
+    if ([name hasSuffix:@".ts"]) {
+        NSData *data = [remux segment:(NSUInteger)[[name stringByDeletingPathExtension] integerValue] waiting:10];
+        if (!data) { [self countServed:@"HTTP 404" bytes:0]; TKSendStatus(fd, 404); return; }
+        NSString *head = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\nContent-Type: video/MP2T\r\nContent-Length: %lu\r\nConnection: close\r\n\r\n", (unsigned long)data.length];
+        [self countServed:@"video/MP2T" bytes:0];
+        if (TKSendString(fd, head) && ![method isEqualToString:@"HEAD"]) {
+            TKSendAll(fd, data.bytes, data.length);
+            [self countServed:@"video/MP2T" bytes:data.length];
+        }
+        return;
+    }
+    TKSendStatus(fd, 404);
 }
 
 - (void)resetPlaybackState
@@ -421,6 +476,10 @@ static BOOL TKProxyPortAnswers(uint16_t port)
 
     if (entry.kind == TKProxyEntryText && [kind isEqualToString:@"t"]) {
         [self sendPlaylist:entry.text method:method to:fd];
+        return;
+    }
+    if (entry.kind == TKProxyEntryLive && [kind isEqualToString:@"l"]) {
+        [self serveLive:entry.remux name:rest method:method to:fd];
         return;
     }
     NSString *label = [NSString stringWithFormat:@"%@/%@", kind, parts[3]];

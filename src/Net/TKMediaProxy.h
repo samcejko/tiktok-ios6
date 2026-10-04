@@ -26,6 +26,11 @@
 // URIs in the text must already be proxy URLs.
 - (NSString *)proxyURLForPlaylistText:(NSString *)text;
 
+// A live FLV stream repacked on the device into a live HLS playlist the player can open (see TKLiveRemux). It reads
+// while the player asks; -stopLiveStreams ends every one (the live screen closed).
+- (NSString *)proxyURLForLiveFLV:(NSURL *)url headers:(NSDictionary *)headers;
+- (void)stopLiveStreams;
+
 // The media playlist served last carried a stitched-in advertisement (the player shows a note)
 @property (atomic, readonly) BOOL adBreakActive;
 // When the player last asked for anything (a player that stopped asking has given up)

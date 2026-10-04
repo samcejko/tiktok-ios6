@@ -9,6 +9,8 @@
 #import "TKSavedViewController.h"
 #import "TKSettingsViewController.h"
 #import "TKCommentsViewController.h"
+#import "TKLivePlayerViewController.h"
+#import "TKLivesViewController.h"
 #import "TKExternalOpen.h"
 #import "TKTheme.h"
 #import "TKUtils.h"
@@ -51,6 +53,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
 @property (nonatomic) BOOL muted;
 @property (nonatomic) BOOL appeared;
 @property (nonatomic) BOOL visible;        // on screen (not covered by a full-screen controller)
+@property (nonatomic) BOOL pausedForLive;  // a live stream plays over it
 @property (nonatomic, weak) TKVideoCell *menuCell;       // the page whose menu (hold) is open
 @property (nonatomic, weak) UIActionSheet *videoMenu;     // that menu while it is up
 @property (nonatomic) NSInteger autoAdvanceStreak;        // moves on by itself since the viewer last did anything
@@ -150,6 +153,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
 
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(libraryChanged) name:TKLibraryDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(settingsChanged) name:TKSettingsDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(livePlaybackChanged:) name:TKLivePlaybackNotification object:nil];
 }
 
 - (void)dealloc { [[NSNotificationCenter defaultCenter] removeObserver:self]; }
@@ -254,7 +258,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
         [self refreshWindow];
         // A video link opened while the feed was loading covers it: playing now would sound under that video.
         // viewDidAppear starts the page once the feed is on screen again.
-        if (self.visible) [self setActiveIndex:0];
+        if (self.visible && !self.pausedForLive) [self setActiveIndex:0];
     }];
 }
 
@@ -415,6 +419,20 @@ static const NSInteger TKAutoAdvancesMax = 5;
     if (cell.video.author.length) [TKLinkRouter openProfile:cell.video.author];
 }
 
+- (void)videoCellDidTapLive:(TKVideoCell *)cell
+{
+    [self viewerIsHere];
+    [TKLinkRouter openLiveRoom:cell.video.authorLiveRoom];
+}
+
+// A live stream on screen (over a sheet, where UIKit does not tell the feed it is covered): the page waits
+- (void)livePlaybackChanged:(NSNotification *)note
+{
+    self.pausedForLive = [note.userInfo[@"playing"] boolValue];
+    if (self.pausedForLive) [[self cellAt:self.currentIndex] setActive:NO];
+    else if (self.visible) [self setActiveIndex:self.currentIndex];
+}
+
 - (void)videoCellDidTapSave:(TKVideoCell *)cell
 {
     [self viewerIsHere];
@@ -508,6 +526,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
     sheet.tag = TKSheetMenu;
     [sheet addButtonWithTitle:self.muted ? L(@"Unmute") : L(@"Mute")];
     [sheet addButtonWithTitle:L(@"Saved")];
+    [sheet addButtonWithTitle:L(@"Live now")];
     [sheet addButtonWithTitle:L(@"What it learned")];
     [sheet addButtonWithTitle:L(@"Open a link")];
     [sheet addButtonWithTitle:L(@"Refresh feed")];
@@ -523,10 +542,11 @@ static const NSInteger TKAutoAdvancesMax = 5;
     switch (index) {
         case 0: [self toggleMute]; break;
         case 1: [self openSaved]; break;
-        case 2: [self present:[[TKTasteViewController alloc] init]]; break;
-        case 3: [self askForLink]; break;
-        case 4: [self loadFeed]; break;
-        case 5: [self openSettings]; break;
+        case 2: [self present:[[TKLivesViewController alloc] init]]; break;
+        case 3: [self present:[[TKTasteViewController alloc] init]]; break;
+        case 4: [self askForLink]; break;
+        case 5: [self loadFeed]; break;
+        case 6: [self openSettings]; break;
         default: break;
     }
 }

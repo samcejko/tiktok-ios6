@@ -38,6 +38,7 @@ static FourCharCode TKFourCC(const char *s)
 @property (nonatomic, strong) UIButton *authorButton;        // over the name: the profile
 @property (nonatomic, strong) UIButton *avatarButton;        // on top of the right-hand buttons: the profile
 @property (nonatomic, strong) TKImageView *avatarImage;
+@property (nonatomic, strong) UILabel *liveBadge;            // under the avatar while the creator is live
 @property (nonatomic, strong) UILabel *descLabel;
 @property (nonatomic, strong) UILabel *musicLabel;
 @property (nonatomic, strong) UILabel *errorLabel;
@@ -137,7 +138,18 @@ static FourCharCode TKFourCC(const char *s)
         _avatarImage.layer.borderWidth = 1.5;
         _avatarImage.backgroundColor = [UIColor colorWithWhite:0.25 alpha:1];
         [_avatarButton addSubview:_avatarImage];
-        [_avatarButton addTarget:self action:@selector(tapAuthor) forControlEvents:UIControlEventTouchUpInside];
+        _liveBadge = [[UILabel alloc] initWithFrame:CGRectMake(7, 38, 32, 13)];
+        _liveBadge.userInteractionEnabled = NO;
+        _liveBadge.text = @"LIVE";   // (TikTok's own word for it, in every language)
+        _liveBadge.font = [UIFont boldSystemFontOfSize:9];
+        _liveBadge.textColor = [UIColor whiteColor];
+        _liveBadge.textAlignment = NSTextAlignmentCenter;
+        _liveBadge.backgroundColor = [[TKTheme shared] liveColor];
+        _liveBadge.layer.cornerRadius = 3;
+        _liveBadge.layer.masksToBounds = YES;
+        _liveBadge.hidden = YES;
+        [_avatarButton addSubview:_liveBadge];
+        [_avatarButton addTarget:self action:@selector(tapAvatar) forControlEvents:UIControlEventTouchUpInside];
         _avatarButton.hidden = YES;
         [self addSubview:_avatarButton];
         // icon-only buttons: name them for VoiceOver (and the debug "press" command)
@@ -288,6 +300,11 @@ static FourCharCode TKFourCC(const char *s)
     [self updateSavedState:[TKSettings isSaved:video.videoId]];
     self.avatarButton.hidden = !video.authorAvatarURL.length;
     [self.avatarImage setImageURL:video.authorAvatarURL placeholder:nil];
+    BOOL live = video.authorLiveRoom.length > 0;
+    self.liveBadge.hidden = !live;
+    self.avatarImage.layer.borderColor = (live ? [[TKTheme shared] liveColor] : [UIColor whiteColor]).CGColor;
+    self.avatarImage.layer.borderWidth = live ? 2.5 : 1.5;
+    self.avatarButton.accessibilityLabel = live ? @"LIVE" : L(@"Profile");
     self.authorButton.hidden = !video.author.length;
     self.coverView.hidden = NO;
     [self.coverView setImageURL:video.coverURL placeholder:nil];
@@ -704,6 +721,17 @@ static FourCharCode TKFourCC(const char *s)
 {
     [self noteTouched];
     if ([self.delegate respondsToSelector:@selector(videoCellDidTapAuthor:)]) [self.delegate videoCellDidTapAuthor:self];
+}
+
+// the avatar of a creator who is live opens the stream (as in TikTok); the name still leads to the profile
+- (void)tapAvatar
+{
+    if (self.video.authorLiveRoom.length && [self.delegate respondsToSelector:@selector(videoCellDidTapLive:)]) {
+        [self noteTouched];
+        [self.delegate videoCellDidTapLive:self];
+        return;
+    }
+    [self tapAuthor];
 }
 
 - (void)tapSave { [self.delegate videoCellDidTapSave:self]; }
