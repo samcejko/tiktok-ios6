@@ -216,8 +216,8 @@ static BOOL TKPressView(UIView *v, NSString *text)
         else if ([type isEqualToString:@"double"]) [cell simulateDoubleTap];
         else if ([type isEqualToString:@"hold"]) [cell simulateLongPress];
         else if ([type isEqualToString:@"scrub"]) [cell simulateScrubTo:(CGFloat)[params[@"f"] doubleValue]];
-        if (cell) TKLog(@"Gesture %@ done: %@ at %.1f / %.1f s, rate %.2f, 2x %d, saved %d", type, cell.video.videoId, cell.currentTime, cell.duration,
-                        [cell playerRate], cell.fastPlayback, [TKSettings isSaved:cell.video.videoId]);
+        if (cell) TKLog(@"Gesture %@ done: %@ at %.1f / %.1f s, rate %.2f, 2x %d, saved %d | %@", type, cell.video.videoId, cell.currentTime, cell.duration,
+                        [cell playerRate], cell.fastPlayback, [TKSettings isSaved:cell.video.videoId], [cell debugPhotoState]);
         return YES;
     }
     if ([target isEqualToString:@"back"]) {

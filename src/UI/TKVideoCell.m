@@ -816,6 +816,20 @@ static FourCharCode TKFourCC(const char *s)
     [self noteTouched];
 }
 
+- (NSString *)debugPhotoState
+{
+    if (!self.photoPager) return @"no photos";
+    NSMutableArray *loaded = [NSMutableArray array], *asked = [NSMutableArray array];
+    for (NSUInteger i = 0; i < self.photoViews.count; i++) {
+        TKImageView *iv = self.photoViews[i];
+        if (iv.image) [loaded addObject:@(i)];
+        if (iv.imageURL.length) [asked addObject:@(i)];
+    }
+    return [NSString stringWithFormat:@"photo %ld/%lu, offset %.0f/%.0f, asked %@, shown %@", (long)self.photoIndex, (unsigned long)self.photoViews.count,
+            self.photoPager.contentOffset.x, self.photoPager.bounds.size.width,
+            [asked componentsJoinedByString:@","], [loaded componentsJoinedByString:@","]];
+}
+
 - (void)tearDownPhotos
 {
     [self stopPhotoTimer];
