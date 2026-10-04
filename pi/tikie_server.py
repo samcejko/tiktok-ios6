@@ -17,6 +17,11 @@ Endpoints (all JSON unless noted):
   GET /resolve?id=<id|url>[&user=<handle>][&vcodec=h264][&maxh=1280]  one video with a fresh playable URL and
                                        the headers to send; an H.264 rendition by default (iOS 6 has no HEVC decoder)
   GET /comments?id=<id|url>&count=40    top-level comments (best effort; empty if TikTok withholds them)
+  GET /replies?id=<id>&cid=<comment id>&count=20  the replies under one comment
+  GET /profile?name=<handle>           a creator: name, avatar, bio, counts, live room, recent posts
+  GET /live?room=<room id>             a live room: on or not, title, viewers, owner, streams (FLV, HLS if any)
+  GET /lives?count=20                  live rooms seen lately among Explore authors
+  GET /expand?u=<tiktok link>          where a (short) TikTok link leads
   GET /proxy?u=<playUrl>               streams the video bytes through the Pi (fallback / save); CDN hosts only
   GET /yt/resolve?id=<youtube id|url>  fresh YouTube stream URLs for the Tubie app (see the YouTube section)
 Set TIKIE_KEY to require ?k=<key> (or X-Tikie-Key header) on every call when you expose this beyond the LAN.
@@ -24,6 +29,7 @@ Set TIKIE_KEY to require ?k=<key> (or X-Tikie-Key header) on every call when you
 import http.cookiejar
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -121,6 +127,8 @@ def item_from_info(info):
         "likes": info.get("like_count") or 0,
         "comments": info.get("comment_count") or 0,
         "plays": info.get("view_count") or 0,
+        "created": info.get("timestamp") or 0,
+        "type": "video",
         "url": info.get("webpage_url") or ("https://www.tiktok.com/@%s/video/%s" % (norm_user(uploader), vid) if uploader and vid else None),
     }
 
@@ -141,9 +149,9 @@ def user_list(name, count):
     for e in entries:
         if not e:
             continue
-        if not e.get("formats") and not e.get("duration"):
-            continue   # a photo post (slideshow): no video to play, /resolve would fail on it
         it = item_from_info(e)
+        if not e.get("formats") and not e.get("duration"):
+            it["type"] = "photo"   # a photo post (slideshow): /resolve reads its pictures from the post's page
         if not it["author"]:
             it["author"] = name
         if it["id"]:
@@ -202,6 +210,18 @@ def resolve(ref, user=None, vcodec="h264", maxh=1280):
         url = "https://www.tiktok.com/@%s/video/%s" % (norm_user(user), vid)
     else:
         url = "https://www.tiktok.com/@_/video/%s" % vid   # TikTok redirects to the right handle
+    try:
+        out = _resolve_ytdlp(url, vcodec, maxh)
+    except Exception as e:
+        # yt-dlp has no answer for a photo post ("No video formats found") and now and then fails on a video too:
+        # the post's own page carries the same data
+        out = resolve_from_page(vid, user, maxh)
+        if not out:
+            raise e
+    CACHE.put(ckey, out, 1800)
+    return out
+
+def _resolve_ytdlp(url, vcodec, maxh):
     with _YDL_LOCK, _ydl({"noplaylist": True}) as ydl:
         info = ydl.extract_info(url, download=False)
         chosen = pick_format(info, vcodec, maxh)
@@ -233,8 +253,18 @@ def resolve(ref, user=None, vcodec="h264", maxh=1280):
     out["music"] = (info.get("track") or info.get("artist") or "")
     if play:
         CACHE.put("hdr:" + play, headers, 1800)     # /proxy reuses the exact headers this URL needs
-    CACHE.put(ckey, out, 1800)
     return out
+
+def _comment_item(c):
+    user = c.get("user") or {}
+    return {"cid": str(c.get("cid") or ""),
+            "author": user.get("unique_id") or user.get("nickname") or "",
+            "authorName": user.get("nickname") or "",
+            "text": (c.get("text") or "").strip(),
+            "likes": c.get("digg_count") or 0,
+            "replies": c.get("reply_comment_total") or 0,
+            "pinned": bool(c.get("author_pin")),
+            "time": c.get("create_time") or 0}
 
 def comments(ref, count):
     """Top-level comments. yt-dlp no longer extracts TikTok comments, but TikTok's own web endpoint answers
@@ -262,13 +292,7 @@ def comments(ref, count):
                 text = (c.get("text") or "").strip()
                 if not text:
                     continue
-                user = c.get("user") or {}
-                out.append({"author": user.get("unique_id") or user.get("nickname") or "",
-                            "authorName": user.get("nickname") or "",
-                            "text": text,
-                            "likes": c.get("digg_count") or 0,
-                            "replies": c.get("reply_comment_total") or 0,
-                            "time": c.get("create_time") or 0})
+                out.append(_comment_item(c))
             if len(out) >= count or not data.get("has_more"):
                 break
             cursor = data.get("cursor") or (cursor + 20)
@@ -319,32 +343,67 @@ def _pick_h264_web(bitrate_info, maxh):
         return max(fit, key=lambda c: (c["long"], c["rate"]))
     return min(cands, key=lambda c: (c["long"] or 10 ** 6, -c["rate"]))
 
+def _session_headers(jar):
+    headers = {"User-Agent": UA, "Referer": "https://www.tiktok.com/"}
+    cookie = "; ".join("%s=%s" % (c.name, c.value) for c in jar if "tiktok" in (c.domain or ""))
+    if cookie:
+        headers["Cookie"] = cookie
+    return headers
+
+def _jpeg(urls):
+    """The JPEG one among an image's URLs (iOS 6 decodes no WebP or HEIC), else the first."""
+    urls = [u for u in (urls or []) if u]
+    for u in urls:
+        if re.search(r"\.jpe?g(\?|$)", u, re.I):
+            return u
+    return urls[0] if urls else ""
+
+# Live rooms seen among the authors of Explore items (their "roomId" is set while they are live): the only way a
+# visitor without an account can find live streams - TikTok's own live listings want a signed request.
+EXPLORE_TOPICS = list(range(100, 120))
+LIVE_SEEN_TTL = 30 * 60       # (a stream lasts hours; the app checks a room is still on before playing it)
+_LIVE_LOCK = threading.Lock()
+_LIVE_SEEN = {}          # roomId -> {"room", "user", "name", "avatar", "seen"}
+
+def _note_live(a):
+    room = str(a.get("roomId") or "")
+    if not room or room == "0":
+        return ""
+    now = time.time()
+    with _LIVE_LOCK:
+        _LIVE_SEEN[room] = {"room": room, "user": norm_user(a.get("uniqueId")), "name": a.get("nickname") or "",
+                            "avatar": _jpeg([a.get("avatarThumb"), a.get("avatarMedium")]), "seen": now}
+        for k in [k for k, v in _LIVE_SEEN.items() if now - v["seen"] > LIVE_SEEN_TTL]:
+            del _LIVE_SEEN[k]
+    return room
+
 def item_from_web(it, maxh):
-    """One Explore item -> a playable list item plus the features the app's recommender learns from."""
-    if it.get("isAd") or it.get("privateItem") or it.get("secret") or it.get("imagePost"):
+    """One web item (an Explore item, or a post read from its page) -> a list item ready to show, plus the features
+    the app's recommender learns from. A video gets its H.264 URL; a photo post its pictures (JPEG) and, when TikTok
+    gives one to a visitor, its sound."""
+    if it.get("isAd") or it.get("privateItem") or it.get("secret"):
+        return None
+    vid = str(it.get("id") or "")
+    if not vid:
         return None
     v = it.get("video") or {}
-    pick = _pick_h264_web(v.get("bitrateInfo"), maxh)
-    if not pick:
-        return None
     a = it.get("author") or {}
     m = it.get("music") or {}
     st = it.get("stats") or {}
     handle = norm_user(a.get("uniqueId"))
-    vid = str(it.get("id") or "")
-    if not vid:
-        return None
     tags = []
     for t in it.get("textExtra") or []:
         name = (t.get("hashtagName") or "").strip().lower()
         if name and name not in tags:
             tags.append(name)
-    return {
+    out = {
         "id": vid,
         "author": handle,
         "authorName": a.get("nickname") or handle,
+        "authorAvatar": _jpeg([a.get("avatarThumb"), a.get("avatarMedium")]),
+        "authorLive": _note_live(a),
         "desc": it.get("desc") or "",
-        "cover": v.get("originCover") or v.get("cover"),
+        "cover": v.get("originCover") or v.get("cover") or "",
         "duration": v.get("duration") or 0,
         "likes": st.get("diggCount") or 0,
         "comments": st.get("commentCount") or 0,
@@ -357,11 +416,21 @@ def item_from_web(it, maxh):
         "tags": tags[:10],
         "lang": it.get("textLanguage") or "",
         "created": it.get("createTime") or 0,
-        "playUrl": pick["url"],
-        "width": pick["w"],
-        "height": pick["h"],
-        "vcodec": "h264",
     }
+    images = []
+    for img in (it.get("imagePost") or {}).get("images") or []:
+        u = _jpeg((img.get("imageURL") or {}).get("urlList"))
+        if u:
+            images.append({"url": u, "w": img.get("imageWidth") or 0, "h": img.get("imageHeight") or 0})
+    if images:
+        out.update({"type": "photo", "images": images, "cover": out["cover"] or images[0]["url"],
+                    "musicUrl": m.get("playUrl") or ""})
+        return out
+    pick = _pick_h264_web(v.get("bitrateInfo"), maxh)
+    if not pick:
+        return None
+    out.update({"type": "video", "playUrl": pick["url"], "width": pick["w"], "height": pick["h"], "vcodec": "h264"})
+    return out
 
 def discover(cat, count, maxh):
     """A fresh Explore batch for one topic. Returns (items, headers): the headers (session cookies) play every URL."""
@@ -377,17 +446,180 @@ def discover(cat, count, maxh):
         raw = data.get("itemList") or []
         if raw:
             break
-    headers = {"User-Agent": UA, "Referer": "https://www.tiktok.com/"}
-    cookie = "; ".join("%s=%s" % (c.name, c.value) for c in jar if "tiktok" in (c.domain or ""))
-    if cookie:
-        headers["Cookie"] = cookie
+    headers = _session_headers(jar)
     items = []
     for it in raw:
         x = item_from_web(it, maxh)
         if x:
             items.append(x)
-            CACHE.put("hdr:" + x["playUrl"], headers, 6 * 3600)   # for the /proxy fallback
+            if x.get("playUrl"):
+                CACHE.put("hdr:" + x["playUrl"], headers, 6 * 3600)   # for the /proxy fallback
     return items, headers
+
+# --- Posts, profiles and live rooms read the way the web app shows them to a visitor ---------
+
+def _web_get(url, referer="https://www.tiktok.com/"):
+    opener, jar = _web_session()
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Referer": referer, "Accept-Language": "en-US,en;q=0.9"})
+    with opener.open(req, timeout=20) as r:
+        return r.geturl(), r.read(), jar
+
+def _rehydration(html):
+    m = re.search(rb'<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">(.*?)</script>', html, re.S)
+    if not m:
+        return {}
+    try:
+        return json.loads(m.group(1)).get("__DEFAULT_SCOPE__") or {}
+    except ValueError:
+        return {}
+
+def resolve_from_page(vid, user=None, maxh=1280):
+    """A post read from its own page: photo posts (yt-dlp has nothing for them) and videos yt-dlp failed on."""
+    try:
+        final, html, jar = _web_get("https://www.tiktok.com/@%s/video/%s" % (norm_user(user) or "_", vid))
+    except Exception as e:
+        sys.stderr.write("page of %s failed: %s\n" % (vid, e))
+        return None
+    detail = _rehydration(html).get("webapp.video-detail") or {}
+    it = (detail.get("itemInfo") or {}).get("itemStruct") or {}
+    out = item_from_web(it, maxh) if it else None
+    if not out:
+        return None
+    out["headers"] = _session_headers(jar)
+    if out.get("playUrl"):
+        CACHE.put("hdr:" + out["playUrl"], out["headers"], 6 * 3600)
+    return out
+
+def replies(ref, cid, count):
+    """The replies under one comment (the same open web endpoint as the comments)."""
+    vid = video_id(ref)
+    cid = re.sub(r"\D", "", cid or "")
+    if not vid or not cid:
+        raise ValueError("id and cid are needed")
+    count = max(1, min(count, 50))
+    ckey = "replies:%s:%s:%d" % (vid, cid, count)
+    cached = CACHE.get(ckey)
+    if cached is not None:
+        return cached
+    out, ok, cursor = [], False, 0
+    try:
+        for _ in range(3):
+            q = urllib.parse.urlencode({"aid": "1988", "item_id": vid, "comment_id": cid, "count": 20, "cursor": cursor})
+            req = urllib.request.Request("https://www.tiktok.com/api/comment/list/reply/?" + q,
+                                         headers={"User-Agent": UA, "Referer": "https://www.tiktok.com/"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                data = json.loads(r.read().decode("utf-8", "replace") or "{}")
+            ok = True
+            for c in data.get("comments") or []:
+                item = _comment_item(c)
+                if item["text"]:
+                    out.append(item)
+            if len(out) >= count or not data.get("has_more"):
+                break
+            cursor = data.get("cursor") or (cursor + 20)
+    except Exception as e:
+        sys.stderr.write("replies failed for %s/%s: %s\n" % (vid, cid, e))
+    out = out[:count]
+    CACHE.put(ckey, out, 600 if ok else 60)
+    return out
+
+def profile(name):
+    """A creator's profile: who they are (from their page) and their recent posts (yt-dlp)."""
+    name = norm_user(name)
+    if not name:
+        raise ValueError("no user")
+    ckey = "profile:%s" % name
+    cached = CACHE.get(ckey)
+    if cached is not None:
+        return cached
+    user = {"handle": name}
+    try:
+        final, html, jar = _web_get("https://www.tiktok.com/@%s" % name)
+        ui = (_rehydration(html).get("webapp.user-detail") or {}).get("userInfo") or {}
+        u, s = ui.get("user") or {}, ui.get("stats") or {}
+        if u:
+            user = {"handle": norm_user(u.get("uniqueId")) or name, "name": u.get("nickname") or "",
+                    "bio": u.get("signature") or "", "verified": bool(u.get("verified")),
+                    "avatar": _jpeg([u.get("avatarMedium"), u.get("avatarLarger"), u.get("avatarThumb")]),
+                    "liveRoom": str(u.get("roomId") or ""), "followers": s.get("followerCount") or 0,
+                    "likes": s.get("heartCount") or 0, "videos": s.get("videoCount") or 0}
+    except Exception as e:
+        sys.stderr.write("profile page of %s failed: %s\n" % (name, e))
+    out = {"user": user, "items": []}
+    try:
+        out["items"] = user_list(name, 30)
+    except Exception as e:
+        sys.stderr.write("profile videos of %s failed: %s\n" % (name, e))
+        out["error"] = "no videos"
+    CACHE.put(ckey, out, 600)
+    return out
+
+def live(room):
+    """A live room: is it on, and its streams. TikTok hands a visitor FLV (an iOS 6 player cannot read it: the app
+    repacks it on the device); an HLS address is passed on too whenever there is one."""
+    room = re.sub(r"\D", "", room or "")
+    if not room:
+        raise ValueError("no room")
+    ckey = "live:%s" % room
+    cached = CACHE.get(ckey)
+    if cached is not None:
+        return cached
+    final, body, jar = _web_get("https://webcast.tiktok.com/webcast/room/info/?aid=1988&room_id=%s" % room)
+    data = json.loads(body.decode("utf-8", "replace") or "{}").get("data") or {}
+    su = data.get("stream_url") or {}
+    streams = []
+    sd = ((su.get("live_core_sdk_data") or {}).get("pull_data") or {}).get("stream_data") or ""
+    try:
+        qualities = (json.loads(sd).get("data") or {}) if isinstance(sd, str) and sd else {}
+    except ValueError:
+        qualities = {}
+    for qname, qv in qualities.items():
+        main = (qv or {}).get("main") or {}
+        try:
+            params = json.loads(main.get("sdk_params") or "{}")
+        except ValueError:
+            params = {}
+        if main.get("flv") or main.get("hls"):
+            streams.append({"quality": qname, "flv": main.get("flv") or "", "hls": main.get("hls") or "",
+                            "vcodec": params.get("VCodec") or "", "resolution": params.get("resolution") or "",
+                            "bitrate": params.get("vbitrate") or 0})
+    if not streams:
+        for qname, u in (su.get("flv_pull_url") or {}).items():
+            streams.append({"quality": qname, "flv": u, "hls": "", "vcodec": "", "resolution": "", "bitrate": 0})
+        if su.get("hls_pull_url"):
+            streams.append({"quality": "hls", "flv": "", "hls": su["hls_pull_url"], "vcodec": "", "resolution": "", "bitrate": 0})
+    owner = data.get("owner") or {}
+    out = {"room": room, "live": data.get("status") == 2, "title": data.get("title") or "",
+           "viewers": data.get("user_count") or 0,
+           "cover": _jpeg((data.get("cover") or {}).get("url_list")),
+           "owner": {"handle": norm_user(owner.get("display_id")), "name": owner.get("nickname") or "",
+                     "avatar": _jpeg((owner.get("avatar_thumb") or {}).get("url_list"))},
+           "streams": streams, "headers": _session_headers(jar)}
+    CACHE.put(ckey, out, 20)
+    return out
+
+def lives(count):
+    """Live rooms seen lately among Explore authors; when there are few, a look at a few more topics first."""
+    def fresh():
+        now = time.time()
+        with _LIVE_LOCK:
+            return sorted((v for v in _LIVE_SEEN.values() if now - v["seen"] < LIVE_SEEN_TTL), key=lambda v: -v["seen"])
+    rooms = fresh()
+    if len(rooms) < 6:            # (about one Explore author in seventy is live at a time)
+        for cat in random.sample(EXPLORE_TOPICS, 5):
+            try:
+                discover(cat, 30, 1280)
+            except Exception as e:
+                sys.stderr.write("lives: topic %s failed: %s\n" % (cat, e))
+        rooms = fresh()
+    return [dict(r, seen=int(r["seen"])) for r in rooms[:max(1, min(count, 50))]]
+
+def expand(u):
+    """Where a TikTok link leads (vm.tiktok.com / vt.tiktok.com short links redirect to the post)."""
+    if not re.match(r"^https?://([a-z0-9-]+\.)*tiktok\.com/", u or "", re.I):
+        raise ValueError("not a TikTok link")
+    final, body, jar = _web_get(u)
+    return {"url": final}
 
 # --- YouTube (added for the Tubie iOS 6 app; everything above is unchanged) ------
 # Gives the phone a fresh, playable YouTube stream so it can get past the ~60 s PO-token wall that caps the
@@ -569,6 +801,16 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/comments":
                 ref = q.get("id", [""])[0] or q.get("url", [""])[0]
                 return self._send_json({"items": comments(ref, int(q.get("count", ["40"])[0]))})
+            if path == "/replies":
+                return self._send_json({"items": replies(q.get("id", [""])[0], q.get("cid", [""])[0], int(q.get("count", ["20"])[0]))})
+            if path == "/profile":
+                return self._send_json(profile(q.get("name", [""])[0]))
+            if path == "/live":
+                return self._send_json(live(q.get("room", [""])[0]))
+            if path == "/lives":
+                return self._send_json({"items": lives(int(q.get("count", ["20"])[0]))})
+            if path == "/expand":
+                return self._send_json(expand(q.get("u", [""])[0] or q.get("url", [""])[0]))
             if path == "/proxy":
                 return self._proxy(q.get("u", [""])[0])
         except ValueError as e:

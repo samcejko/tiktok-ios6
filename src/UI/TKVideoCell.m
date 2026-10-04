@@ -33,6 +33,9 @@ static FourCharCode TKFourCC(const char *s)
 @property (nonatomic, strong) UIActivityIndicatorView *spinner;
 @property (nonatomic, strong) UIImageView *pauseBadge;
 @property (nonatomic, strong) UILabel *authorLabel;
+@property (nonatomic, strong) UIButton *authorButton;        // over the name: the profile
+@property (nonatomic, strong) UIButton *avatarButton;        // on top of the right-hand buttons: the profile
+@property (nonatomic, strong) TKImageView *avatarImage;
 @property (nonatomic, strong) UILabel *descLabel;
 @property (nonatomic, strong) UILabel *musicLabel;
 @property (nonatomic, strong) UILabel *errorLabel;
@@ -110,7 +113,25 @@ static FourCharCode TKFourCC(const char *s)
         _commentsCountLabel = [self labelBold:YES size:12 color:[UIColor whiteColor]];
         _commentsCountLabel.textAlignment = NSTextAlignmentCenter;
         _shareButton = [self iconButton:[[TKTheme shared] skipIconForward:YES] action:@selector(tapShare)];
+        _authorButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        [_authorButton addTarget:self action:@selector(tapAuthor) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:_authorButton];
+        _avatarButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        _avatarImage = [[TKImageView alloc] initWithFrame:CGRectMake(0, 0, 46, 46)];
+        _avatarImage.userInteractionEnabled = NO;
+        _avatarImage.contentMode = UIViewContentModeScaleAspectFill;
+        _avatarImage.clipsToBounds = YES;
+        _avatarImage.layer.cornerRadius = 23;
+        _avatarImage.layer.borderColor = [UIColor whiteColor].CGColor;
+        _avatarImage.layer.borderWidth = 1.5;
+        _avatarImage.backgroundColor = [UIColor colorWithWhite:0.25 alpha:1];
+        [_avatarButton addSubview:_avatarImage];
+        [_avatarButton addTarget:self action:@selector(tapAuthor) forControlEvents:UIControlEventTouchUpInside];
+        _avatarButton.hidden = YES;
+        [self addSubview:_avatarButton];
         // icon-only buttons: name them for VoiceOver (and the debug "press" command)
+        _authorButton.accessibilityLabel = L(@"Profile");
+        _avatarButton.accessibilityLabel = L(@"Profile");
         _saveButton.accessibilityLabel = L(@"Save");
         _commentsButton.accessibilityLabel = L(@"Comments");
         _shareButton.accessibilityLabel = L(@"Share");
@@ -197,6 +218,9 @@ static FourCharCode TKFourCC(const char *s)
     CGSize ds = [self.descLabel.text sizeWithFont:self.descLabel.font constrainedToSize:CGSizeMake(textW, 60) lineBreakMode:NSLineBreakByTruncatingTail];
     self.descLabel.frame = CGRectMake(14, b.size.height - 48 - ds.height - 2, textW, ds.height);
     self.authorLabel.frame = CGRectMake(14, CGRectGetMinY(self.descLabel.frame) - 24, textW, 20);
+    CGSize nameSize = [self.authorLabel.text sizeWithFont:self.authorLabel.font];
+    self.authorButton.frame = CGRectMake(8, CGRectGetMinY(self.authorLabel.frame) - 8, MIN(textW, ceilf(nameSize.width)) + 16, 36);
+    self.avatarButton.frame = CGRectMake(railX + 1, y - 64, 46, 46);
     self.errorLabel.frame = CGRectMake(30, b.size.height / 2 - 40, b.size.width - 60, 80);
     self.scrubZone.frame = CGRectMake(0, b.size.height - TKScrubZoneHeight, b.size.width, TKScrubZoneHeight);
     self.scrubLabel.frame = CGRectMake(0, b.size.height - TKScrubZoneHeight - 40, b.size.width, 24);
@@ -243,6 +267,9 @@ static FourCharCode TKFourCC(const char *s)
     self.saveCountLabel.text = video.likes ? [TKUtils formatCount:video.likes] : L(@"Save");
     self.commentsCountLabel.text = video.commentCount ? [TKUtils formatCount:video.commentCount] : @"";
     [self updateSavedState:[TKSettings isSaved:video.videoId]];
+    self.avatarButton.hidden = !video.authorAvatarURL.length;
+    [self.avatarImage setImageURL:video.authorAvatarURL placeholder:nil];
+    self.authorButton.hidden = !video.author.length;
     self.coverView.hidden = NO;
     [self.coverView setImageURL:video.coverURL placeholder:nil];
     self.progressBar.frame = CGRectZero;
@@ -629,6 +656,12 @@ static FourCharCode TKFourCC(const char *s)
 
 #pragma mark - Buttons
 
+- (void)tapAuthor
+{
+    [self noteTouched];
+    if ([self.delegate respondsToSelector:@selector(videoCellDidTapAuthor:)]) [self.delegate videoCellDidTapAuthor:self];
+}
+
 - (void)tapSave { [self.delegate videoCellDidTapSave:self]; }
 - (void)tapComments { [self.delegate videoCellDidTapComments:self]; }
 - (void)tapShare { [self.delegate videoCellDidTapShare:self]; }
@@ -663,6 +696,7 @@ static FourCharCode TKFourCC(const char *s)
 {
     [self teardownPlayer];
     [self.coverView setImageURL:nil placeholder:nil];
+    [self.avatarImage setImageURL:nil placeholder:nil];
     self.video = nil;
 }
 

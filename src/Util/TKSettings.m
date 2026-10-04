@@ -18,10 +18,9 @@ static const NSUInteger TKMaxSeen = 4000;
         @"autoAdvance": @YES,
         @"darkTheme": @YES,
         @"verifyTLS": @YES,
-        @"creators": @[],
+        @"hiddenLanguages": @[],
         @"savedVideos": @[],
         @"seenVideos": @[],
-        @"recentSearches": @[],
     }];
 }
 
@@ -74,57 +73,30 @@ static const NSUInteger TKMaxSeen = 4000;
 + (BOOL)verifyTLS { return [DEF boolForKey:@"verifyTLS"]; }
 + (void)setVerifyTLS:(BOOL)value { [DEF setBool:value forKey:@"verifyTLS"]; }
 
-#pragma mark - Creators
+#pragma mark - Languages
 
-+ (NSString *)normHandle:(NSString *)handle
++ (NSArray *)knownLanguages
 {
-    NSString *h = [[handle stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] lowercaseString];
-    if ([h hasPrefix:@"@"]) h = [h substringFromIndex:1];
-    // allow a pasted profile URL
-    NSRange at = [h rangeOfString:@"tiktok.com/@"];
-    if (at.location != NSNotFound) {
-        h = [h substringFromIndex:at.location + at.length];
-        h = [h componentsSeparatedByString:@"/"].firstObject ?: h;
-        h = [h componentsSeparatedByString:@"?"].firstObject ?: h;
-    }
-    NSMutableString *clean = [NSMutableString string];
-    NSCharacterSet *ok = [NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyz0123456789_."];
-    for (NSUInteger i = 0; i < h.length; i++) {
-        unichar c = [h characterAtIndex:i];
-        if ([ok characterIsMember:c]) [clean appendFormat:@"%C", c];
-    }
-    return clean;
+    return @[ @"cs", @"sk", @"en", @"de", @"pl", @"ru", @"uk", @"es", @"pt", @"fr", @"it", @"ar", @"tr", @"id", @"vi" ];
 }
 
-+ (NSArray *)creators { return [DEF arrayForKey:@"creators"] ?: @[]; }
++ (NSArray *)hiddenLanguages { return [DEF arrayForKey:@"hiddenLanguages"] ?: @[]; }
 
-+ (BOOL)hasCreator:(NSString *)handle
++ (void)setHiddenLanguages:(NSArray *)codes
 {
-    NSString *h = [self normHandle:handle];
-    for (NSString *c in [self creators]) if ([c isEqualToString:h]) return YES;
-    return NO;
-}
-
-+ (void)addCreator:(NSString *)handle
-{
-    NSString *h = [self normHandle:handle];
-    if (!h.length) return;
-    NSMutableArray *list = [[self creators] mutableCopy];
-    [list removeObject:h];
-    [list insertObject:h atIndex:0];
-    [DEF setObject:list forKey:@"creators"];
+    [DEF setObject:codes ?: @[] forKey:@"hiddenLanguages"];
     [self save];
-    [self notifyLibrary];
+    [self notify];
 }
 
-+ (void)removeCreator:(NSString *)handle
++ (BOOL)allowsLanguage:(NSString *)code
 {
-    NSString *h = [self normHandle:handle];
-    NSMutableArray *list = [[self creators] mutableCopy];
-    [list removeObject:h];
-    [DEF setObject:list forKey:@"creators"];
-    [self save];
-    [self notifyLibrary];
+    NSArray *hidden = [self hiddenLanguages];
+    if (!hidden.count) return YES;
+    NSString *c = code.length ? [code lowercaseString] : @"un";
+    if ([hidden containsObject:c]) return NO;
+    if (![c isEqualToString:@"un"] && ![[self knownLanguages] containsObject:c] && [hidden containsObject:@"*"]) return NO;
+    return YES;
 }
 
 #pragma mark - Saved
@@ -176,22 +148,6 @@ static const NSUInteger TKMaxSeen = 4000;
     [seen addObject:videoId];
     while (seen.count > TKMaxSeen) [seen removeObjectAtIndex:0];
     [DEF setObject:seen forKey:@"seenVideos"];
-}
-
-#pragma mark - Recent searches
-
-+ (NSArray *)recentSearches { return [DEF arrayForKey:@"recentSearches"] ?: @[]; }
-
-+ (void)addRecentSearch:(NSString *)query
-{
-    NSString *q = [query stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if (!q.length) return;
-    NSMutableArray *list = [[self recentSearches] mutableCopy];
-    [list removeObject:q];
-    [list insertObject:q atIndex:0];
-    while (list.count > 20) [list removeLastObject];
-    [DEF setObject:list forKey:@"recentSearches"];
-    [self save];
 }
 
 @end

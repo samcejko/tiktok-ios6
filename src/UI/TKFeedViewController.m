@@ -4,7 +4,8 @@
 #import "TKTikTok.h"
 #import "TKModels.h"
 #import "TKSettings.h"
-#import "TKDiscoverViewController.h"
+#import "TKTasteViewController.h"
+#import "TKLinkRouter.h"
 #import "TKSavedViewController.h"
 #import "TKSettingsViewController.h"
 #import "TKCommentsViewController.h"
@@ -35,7 +36,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
 }
 @end
 
-@interface TKFeedViewController () <UIScrollViewDelegate, TKVideoCellDelegate, UIActionSheetDelegate>
+@interface TKFeedViewController () <UIScrollViewDelegate, TKVideoCellDelegate, UIActionSheetDelegate, UIAlertViewDelegate>
 @property (nonatomic, strong) UIScrollView *scroll;
 @property (nonatomic, strong) TKFeed *feed;              // live mode
 @property (nonatomic, strong) NSArray *fixedVideos;      // fixed mode (saved / single link)
@@ -381,6 +382,12 @@ static const NSInteger TKAutoAdvancesMax = 5;
 
 - (void)videoCellWasTouched:(TKVideoCell *)cell { [self viewerIsHere]; }
 
+- (void)videoCellDidTapAuthor:(TKVideoCell *)cell
+{
+    [self viewerIsHere];
+    if (cell.video.author.length) [TKLinkRouter openProfile:cell.video.author];
+}
+
 - (void)videoCellDidTapSave:(TKVideoCell *)cell
 {
     [self viewerIsHere];
@@ -472,8 +479,9 @@ static const NSInteger TKAutoAdvancesMax = 5;
     UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil delegate:self cancelButtonTitle:nil destructiveButtonTitle:nil otherButtonTitles:nil];
     sheet.tag = TKSheetMenu;
     [sheet addButtonWithTitle:self.muted ? L(@"Unmute") : L(@"Mute")];
-    [sheet addButtonWithTitle:L(@"Followed creators")];
     [sheet addButtonWithTitle:L(@"Saved")];
+    [sheet addButtonWithTitle:L(@"What it learned")];
+    [sheet addButtonWithTitle:L(@"Open a link")];
     [sheet addButtonWithTitle:L(@"Refresh feed")];
     [sheet addButtonWithTitle:L(@"Settings")];
     sheet.cancelButtonIndex = [sheet addButtonWithTitle:L(@"Cancel")];
@@ -486,12 +494,29 @@ static const NSInteger TKAutoAdvancesMax = 5;
     if (sheet.tag == TKSheetVideo) { [self videoMenuChose:index]; return; }
     switch (index) {
         case 0: [self toggleMute]; break;
-        case 1: [self openDiscover]; break;
-        case 2: [self openSaved]; break;
-        case 3: [self loadFeed]; break;
-        case 4: [self openSettings]; break;
+        case 1: [self openSaved]; break;
+        case 2: [self present:[[TKTasteViewController alloc] init]]; break;
+        case 3: [self askForLink]; break;
+        case 4: [self loadFeed]; break;
+        case 5: [self openSettings]; break;
         default: break;
     }
+}
+
+- (void)askForLink
+{
+    UIAlertView *a = [[UIAlertView alloc] initWithTitle:L(@"Open a link") message:L(@"Paste a TikTok link: a video, a profile or a live stream.")
+                                               delegate:self cancelButtonTitle:L(@"Cancel") otherButtonTitles:L(@"Open"), nil];
+    a.alertViewStyle = UIAlertViewStylePlainTextInput;
+    [a textFieldAtIndex:0].text = [UIPasteboard generalPasteboard].string ?: @"";
+    [a show];
+}
+
+- (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex
+{
+    if (buttonIndex == alertView.cancelButtonIndex) return;
+    NSString *link = [alertView textFieldAtIndex:0].text;
+    if (![TKLinkRouter openLink:link]) [TKUtils alertWithTitle:L(@"Open a link") message:L(@"That does not look like a TikTok link.")];
 }
 
 - (void)toggleMute
@@ -500,7 +525,6 @@ static const NSInteger TKAutoAdvancesMax = 5;
     [[self cellAt:self.currentIndex] setMuted:self.muted];
 }
 
-- (void)openDiscover { [self present:[[TKDiscoverViewController alloc] init]]; }
 - (void)openSaved { [self present:[[TKSavedViewController alloc] init]]; }
 - (void)openSettings { [self present:[[TKSettingsViewController alloc] initWithStyle:UITableViewStyleGrouped]]; }
 

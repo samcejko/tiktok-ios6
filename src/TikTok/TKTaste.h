@@ -25,6 +25,13 @@
 // A small extra nudge to the features only (comments opened, link copied)
 - (void)nudgeVideo:(TKVideo *)video reward:(double)reward;
 
+// For the "what it learned about me" screen
++ (NSString *)localizedTopicName:(NSInteger)topicId;
+- (NSArray *)featureWeightsWithPrefix:(NSString *)prefix;  // @[ key, weight ] pairs ("tag:", "au:"...), strongest first
+- (NSArray *)topicRecords;     // NSDictionary id, rate (0..1), seen (how much evidence) - topics with a record, best first
+- (void)forgetFeature:(NSString *)key;
+- (void)forgetTopic:(NSInteger)topicId;
+
 - (NSString *)summary;                                     // debug: strongest likes and dislikes, topic odds
 - (NSString *)explainVideo:(TKVideo *)video;               // debug: the feature weights behind a video's score
 - (void)reset;

@@ -2,7 +2,7 @@
 #import "TKModels.h"
 
 // Our own "For You". Candidates come from TikTok's logged-out Explore feed - a fresh batch per topic, so the supply
-// never runs out - and now and then from a creator you follow (optional; the feed needs none). Which topics to ask
+// never runs out (videos in languages the viewer turned off are left out). Which topics to ask
 // for is drawn from what you liked (TKTaste); each next video is the best-scoring candidate with some randomness,
 // a share of pure exploration (large at first, never zero), and rules that keep the feed varied: not the same
 // creator twice within a few videos, rarely the same topic three times running.

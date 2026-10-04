@@ -49,7 +49,7 @@
         NSMutableArray *videos = [NSMutableArray array];
         for (NSDictionary *item in TKArr(TKDict(json)[@"items"])) {
             TKVideo *v = [TKVideo videoFromJSON:TKDict(item)];
-            if (!v.playURL.length) continue;
+            if (!v.playable) continue;
             if (!v.playHeaders) v.playHeaders = batchHeaders;   // the session cookies every URL of the batch plays with
             v.fetchedAt = now;
             [videos addObject:v];
@@ -92,6 +92,14 @@
     if (r.coverURL.length && !video.coverURL.length) video.coverURL = r.coverURL;
     if (r.likes) video.likes = r.likes;
     if (r.commentCount) video.commentCount = r.commentCount;
+    if (r.createdAt > 0) video.createdAt = r.createdAt;
+    if (r.authorAvatarURL.length) video.authorAvatarURL = r.authorAvatarURL;
+    if (r.authorLiveRoom.length) video.authorLiveRoom = r.authorLiveRoom;
+    if (r.category && !video.category) video.category = r.category;
+    if (r.lang.length && !video.lang.length) video.lang = r.lang;
+    video.isPhoto = r.isPhoto;
+    video.imageURLs = r.imageURLs;
+    video.audioURL = r.audioURL;
 }
 
 // What this device can show: H.264 only (iOS 6 has no HEVC decoder) and no taller than its screen in pixels.
@@ -112,7 +120,8 @@
     if (!url) { completion(nil, [self notConfigured]); return nil; }
     return [TKHTTP getJSON:url headers:nil completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(nil, error); return; }
-        if (!TKStr(TKDict(json)[@"playUrl"]).length) { completion(nil, TKMakeError(TKErrorAPI, L(@"This video could not be loaded."))); return; }
+        BOOL hasPictures = TKArr(TKDict(json)[@"images"]).count > 0;    // a photo post: pictures instead of a video
+        if (!TKStr(TKDict(json)[@"playUrl"]).length && !hasPictures) { completion(nil, TKMakeError(TKErrorAPI, L(@"This video could not be loaded."))); return; }
         [self applyResolved:TKDict(json) to:video];
         completion(video, nil);
     }];
@@ -138,6 +147,67 @@
             if (c.text.length) [comments addObject:c];
         }
         completion(comments, nil);
+    }];
+}
+
++ (TKHTTPTask *)repliesForVideo:(NSString *)videoId comment:(NSString *)commentId count:(NSInteger)count completion:(void (^)(NSArray *, NSError *))completion
+{
+    NSString *url = [self urlForPath:@"/replies" query:[NSString stringWithFormat:@"id=%@&cid=%@&count=%ld", [TKUtils urlEncode:videoId ?: @""],
+                                                         [TKUtils urlEncode:commentId ?: @""], (long)count]];
+    if (!url) { completion(nil, [self notConfigured]); return nil; }
+    return [TKHTTP getJSON:url headers:nil completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        NSMutableArray *replies = [NSMutableArray array];
+        for (NSDictionary *item in TKArr(TKDict(json)[@"items"])) {
+            TKComment *c = [TKComment commentFromJSON:TKDict(item)];
+            c.isReply = YES;
+            if (c.text.length) [replies addObject:c];
+        }
+        completion(replies, nil);
+    }];
+}
+
++ (TKHTTPTask *)profileForUser:(NSString *)handle completion:(void (^)(TKProfile *, NSError *))completion
+{
+    NSString *h = [handle hasPrefix:@"@"] ? [handle substringFromIndex:1] : handle;
+    NSString *url = [self urlForPath:@"/profile" query:[NSString stringWithFormat:@"name=%@", [TKUtils urlEncode:h ?: @""]]];
+    if (!url) { completion(nil, [self notConfigured]); return nil; }
+    return [TKHTTP getJSON:url headers:nil completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        TKProfile *p = [TKProfile profileFromJSON:TKDict(json)];
+        completion(p, p ? nil : TKMakeError(TKErrorBadResponse, L(@"This profile could not be loaded.")));
+    }];
+}
+
++ (TKHTTPTask *)liveRoom:(NSString *)roomId completion:(void (^)(TKLiveRoom *, NSError *))completion
+{
+    NSString *url = [self urlForPath:@"/live" query:[NSString stringWithFormat:@"room=%@", [TKUtils urlEncode:roomId ?: @""]]];
+    if (!url) { completion(nil, [self notConfigured]); return nil; }
+    return [TKHTTP getJSON:url headers:nil completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        TKLiveRoom *r = [TKLiveRoom roomFromJSON:TKDict(json)];
+        completion(r, r ? nil : TKMakeError(TKErrorBadResponse, L(@"This live stream could not be loaded.")));
+    }];
+}
+
++ (TKHTTPTask *)liveRooms:(void (^)(NSArray *, NSError *))completion
+{
+    NSString *url = [self urlForPath:@"/lives" query:@"count=30"];
+    if (!url) { completion(nil, [self notConfigured]); return nil; }
+    return [TKHTTP getJSON:url headers:nil completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        NSMutableArray *rooms = [NSMutableArray array];
+        for (id item in TKArr(TKDict(json)[@"items"])) if (TKStr(TKDict(item)[@"room"]).length) [rooms addObject:item];
+        completion(rooms, nil);
+    }];
+}
+
++ (TKHTTPTask *)expandLink:(NSString *)link completion:(void (^)(NSString *, NSError *))completion
+{
+    NSString *url = [self urlForPath:@"/expand" query:[NSString stringWithFormat:@"u=%@", [TKUtils urlEncode:link ?: @""]]];
+    if (!url) { completion(nil, [self notConfigured]); return nil; }
+    return [TKHTTP getJSON:url headers:nil completion:^(id json, NSInteger status, NSError *error) {
+        completion(error ? nil : TKStr(TKDict(json)[@"url"]), error);
     }];
 }
 

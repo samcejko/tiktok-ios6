@@ -12,6 +12,7 @@
 - (void)videoCell:(TKVideoCell *)cell didLongPressAt:(CGPoint)point;   // hold = the video's menu
 @optional
 - (void)videoCellWasTouched:(TKVideoCell *)cell;        // pause/play or seeking: someone is watching
+- (void)videoCellDidTapAuthor:(TKVideoCell *)cell;      // the name or the avatar: the creator's profile
 @end
 
 // One full-screen video page: AVPlayer behind, cover art until the first frame, the author/description overlay,

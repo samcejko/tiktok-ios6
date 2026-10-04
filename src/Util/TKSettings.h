@@ -30,11 +30,12 @@
 + (BOOL)verifyTLS;
 + (void)setVerifyTLS:(BOOL)value;
 
-// Followed creators (optional): their videos join the feed now and then (handles without @, newest added first)
-+ (NSArray *)creators;
-+ (void)addCreator:(NSString *)handle;
-+ (void)removeCreator:(NSString *)handle;
-+ (BOOL)hasCreator:(NSString *)handle;
+// Languages the feed leaves out: TikTok's caption language codes, plus "un" (no caption text) and "*" (every
+// language not in +knownLanguages, the list the settings show)
++ (NSArray *)knownLanguages;
++ (NSArray *)hiddenLanguages;
++ (void)setHiddenLanguages:(NSArray *)codes;
++ (BOOL)allowsLanguage:(NSString *)code;
 
 // Saved videos (each is TKVideo -toJSON; newest first)
 + (NSArray *)savedVideos;
@@ -45,9 +46,5 @@
 // Videos already shown (the feed does not bring them back; the taste itself lives in TKTaste)
 + (BOOL)hasSeenVideo:(NSString *)videoId;
 + (void)markVideoSeen:(NSString *)videoId;
-
-// Searches/creators the user has typed (for quick re-add)
-+ (NSArray *)recentSearches;
-+ (void)addRecentSearch:(NSString *)query;
 
 @end

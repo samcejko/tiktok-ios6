@@ -58,16 +58,6 @@ static double TKFeedRandom(void) { return ((double)arc4random() + 0.5) / 4294967
         };
         [jobs addObject:job];
     }
-    NSArray *creators = [TKSettings creators];
-    if (creators.count && arc4random_uniform(100) < 35) {
-        NSString *handle = creators[arc4random_uniform((uint32_t)creators.count)];
-        TKFeedJob job = ^(void (^done)(NSArray *)) {
-            [TKTikTok videosForCreator:handle count:12 completion:^(NSArray *videos, NSError *error) {
-                done(videos.count > 4 ? [videos subarrayWithRange:NSMakeRange(0, 4)] : videos);   // their newest few
-            }];
-        };
-        [jobs addObject:job];
-    }
 
     __block NSInteger pending = (NSInteger)jobs.count;
     __block NSUInteger added = 0;
@@ -75,6 +65,7 @@ static double TKFeedRandom(void) { return ((double)arc4random() + 0.5) / 4294967
         job(^(NSArray *videos) {
             for (TKVideo *v in videos) {
                 if (!v.videoId.length || [self.knownIds containsObject:v.videoId] || [TKSettings hasSeenVideo:v.videoId]) continue;
+                if (![TKSettings allowsLanguage:v.lang]) continue;           // languages the viewer turned off
                 [self.knownIds addObject:v.videoId];
                 [self.pool addObject:v];
                 added++;
@@ -96,9 +87,10 @@ static double TKFeedRandom(void) { return ((double)arc4random() + 0.5) / 4294967
 - (TKVideo *)takeNext
 {
     NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
-    for (NSInteger i = (NSInteger)self.pool.count - 1; i >= 0; i--) {   // a stale URL is not worth re-resolving
-        TKVideo *v = self.pool[(NSUInteger)i];
-        if (v.fetchedAt > 0 && now - v.fetchedAt > TKPlayURLMaxAge) [self.pool removeObjectAtIndex:(NSUInteger)i];
+    for (NSInteger i = (NSInteger)self.pool.count - 1; i >= 0; i--) {   // a stale URL is not worth re-resolving;
+        TKVideo *v = self.pool[(NSUInteger)i];                             // a language turned off since goes too
+        if ((v.fetchedAt > 0 && now - v.fetchedAt > TKPlayURLMaxAge) || ![TKSettings allowsLanguage:v.lang])
+            [self.pool removeObjectAtIndex:(NSUInteger)i];
     }
     if (!self.pool.count) return nil;
 

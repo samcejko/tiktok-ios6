@@ -2,7 +2,7 @@
 #import "TKFeedViewController.h"
 #import "TKVideoCell.h"
 #import "TKTaste.h"
-#import "TKDiscoverViewController.h"
+#import "TKLinkRouter.h"
 #import "TKTikTok.h"
 #import "TKModels.h"
 #import "TKMediaProxy.h"
@@ -81,35 +81,15 @@ static BOOL TKPressView(UIView *v, NSString *text)
     return top;
 }
 
-- (void)playVideoId:(NSString *)vid author:(NSString *)author
-{
-    [TKTikTok resolveId:vid author:author completion:^(TKVideo *resolved, NSError *error) {
-        if (!resolved) { [TKUtils alertWithTitle:L(@"Open a video link") message:error.localizedDescription ?: L(@"This video could not be loaded.")]; return; }
-        TKFeedViewController *feed = [[TKFeedViewController alloc] initWithVideos:@[ resolved ] startIndex:0 title:resolved.author.length ? [@"@" stringByAppendingString:resolved.author] : L(@"Video")];
-        feed.modalPresentationStyle = UIModalPresentationFullScreen;
-        UIViewController *top = self.window.rootViewController;
-        while (top.presentedViewController) top = top.presentedViewController;
-        [top presentViewController:feed animated:YES completion:nil];
-    }];
-}
-
-// tikie:add?u=@handle, tikie:play/<id>, and tiktok.com links. Debug commands (need Documents/debug): snapshot,
-// screen, press?title=/n=, back, stats, swipe[?dir=down], remove?u=, saved[?clear=1], taste[?reset=1],
+// tikie:open?url=<a TikTok link> (how Surfari hands links over), tikie:play/<id>, tikie:user/<handle>,
+// tikie:live/<room>, tikie:server?url=&key=, and plain tiktok.com links. Debug commands (need Documents/debug):
+// snapshot, screen, press?title=/n=, back, stats, swipe[?dir=down], saved[?clear=1], taste[?reset=1],
 // gesture?type=double|hold|scrub[&f=]|pos.
 - (BOOL)application:(UIApplication *)application openURL:(NSURL *)url sourceApplication:(NSString *)sourceApplication annotation:(id)annotation
 {
     NSString *s = url.absoluteString ?: @"";
     NSString *lower = [s lowercaseString];
-    if ([lower rangeOfString:@"tiktok.com"].location != NSNotFound && ([lower hasPrefix:@"http://"] || [lower hasPrefix:@"https://"])) {
-        NSRange r = [s rangeOfString:@"/video/"];
-        if (r.location != NSNotFound) {
-            NSString *tail = [s substringFromIndex:r.location + r.length];
-            NSMutableString *vid = [NSMutableString string];
-            for (NSUInteger i = 0; i < tail.length; i++) { unichar c = [tail characterAtIndex:i]; if (c >= '0' && c <= '9') [vid appendFormat:@"%C", c]; else break; }
-            if (vid.length) { [self playVideoId:vid author:nil]; return YES; }
-        }
-        return NO;
-    }
+    if ([lower hasPrefix:@"http://"] || [lower hasPrefix:@"https://"]) return [TKLinkRouter openLink:s];
     if (![lower hasPrefix:@"tikie:"]) return NO;
     NSString *target = [s substringFromIndex:@"tikie:".length];
     while ([target hasPrefix:@"/"]) target = [target substringFromIndex:1];
@@ -117,8 +97,13 @@ static BOOL TKPressView(UIView *v, NSString *text)
     NSRange q = [target rangeOfString:@"?"];
     if (q.location != NSNotFound) { query = [target substringFromIndex:q.location + 1]; target = [target substringToIndex:q.location]; }
     NSDictionary *params = query.length ? [TKUtils parseQuery:query] : @{};
-    if ([target hasPrefix:@"play/"]) { [self playVideoId:[target substringFromIndex:@"play/".length] author:nil]; return YES; }
-    if ([target isEqualToString:@"add"] && [params[@"u"] length]) { [TKSettings addCreator:params[@"u"]]; return YES; }
+    if ([target hasPrefix:@"play/"]) { [TKLinkRouter openVideoId:[target substringFromIndex:@"play/".length] author:nil]; return YES; }
+    if ([target hasPrefix:@"user/"]) { [TKLinkRouter openProfile:[target substringFromIndex:@"user/".length]]; return YES; }
+    if ([target hasPrefix:@"live/"]) { [TKLinkRouter openLiveRoom:[target substringFromIndex:@"live/".length]]; return YES; }
+    if ([target isEqualToString:@"open"] && [params[@"url"] length]) {
+        if (![TKLinkRouter openLink:params[@"url"]]) [TKUtils alertWithTitle:L(@"Open a link") message:L(@"That does not look like a TikTok link.")];
+        return YES;
+    }
     // tikie:server?url=<base>&key=<key> - set the helper address (also how you hand the app to other people)
     if ([target isEqualToString:@"server"]) {
         if ([params[@"url"] length]) [TKSettings setServerBaseURL:params[@"url"]];
@@ -134,9 +119,9 @@ static BOOL TKPressView(UIView *v, NSString *text)
         struct task_basic_info info; mach_msg_type_number_t count = TASK_BASIC_INFO_COUNT;
         if (task_info(mach_task_self(), TASK_BASIC_INFO, (task_info_t)&info, &count) == KERN_SUCCESS)
             TKLog(@"Memory: %.1f MB resident", info.resident_size / 1048576.0);
-        TKLog(@"Top: %@, server %@ (%@), creators %lu, saved %lu, proxy %@", NSStringFromClass([top class]), [TKSettings serverBaseURL],
-              [TKSettings serverKey].length ? @"keyed" : @"no key", (unsigned long)[TKSettings creators].count, (unsigned long)[TKSettings savedVideos].count,
-              [[TKMediaProxy shared] statsDescription]);
+        TKLog(@"Top: %@, server %@ (%@), saved %lu, hidden languages %@, proxy %@", NSStringFromClass([top class]), [TKSettings serverBaseURL],
+              [TKSettings serverKey].length ? @"keyed" : @"no key", (unsigned long)[TKSettings savedVideos].count,
+              [[TKSettings hiddenLanguages] componentsJoinedByString:@","], [[TKMediaProxy shared] statsDescription]);
         return YES;
     }
     if ([target isEqualToString:@"proxylog"]) { [TKMediaProxy shared].logRequests = ![params[@"on"] isEqualToString:@"0"]; return YES; }
@@ -197,11 +182,6 @@ static BOOL TKPressView(UIView *v, NSString *text)
                 break;
             }
         }
-        return YES;
-    }
-    if ([target isEqualToString:@"remove"] && [params[@"u"] length]) {
-        [TKSettings removeCreator:params[@"u"]];
-        TKLog(@"Creators now: %@", [[TKSettings creators] componentsJoinedByString:@", "]);
         return YES;
     }
     if ([target isEqualToString:@"saved"]) {

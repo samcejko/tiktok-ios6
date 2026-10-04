@@ -1,4 +1,6 @@
 #import "TKSettingsViewController.h"
+#import "TKLanguagesViewController.h"
+#import "TKTasteViewController.h"
 #import "TKTikTok.h"
 #import "TKSettings.h"
 #import "TKImageLoader.h"
@@ -6,7 +8,7 @@
 #import "TKUtils.h"
 #import "TKCommon.h"
 
-enum { SecServer, SecPlayback, SecAppearance, SecNetwork, SecData, SecAbout, SecCount };
+enum { SecServer, SecFeed, SecPlayback, SecAppearance, SecNetwork, SecData, SecAbout, SecCount };
 
 @interface TKSettingsViewController () <UIAlertViewDelegate>
 @end
@@ -22,6 +24,7 @@ enum { SecServer, SecPlayback, SecAppearance, SecNetwork, SecData, SecAbout, Sec
 }
 
 - (void)done { [self dismissViewControllerAnimated:YES completion:nil]; }
+- (void)viewWillAppear:(BOOL)animated { [super viewWillAppear:animated]; [self.tableView reloadData]; }   // (back from the languages)
 - (BOOL)shouldAutorotate { return YES; }
 - (NSUInteger)supportedInterfaceOrientations { return UIInterfaceOrientationMaskAll; }
 
@@ -31,6 +34,7 @@ enum { SecServer, SecPlayback, SecAppearance, SecNetwork, SecData, SecAbout, Sec
 {
     switch (s) {
         case SecServer: return 4;
+        case SecFeed: return 2;
         case SecPlayback: return 2;
         case SecAppearance: return 1;
         case SecNetwork: return 1;
@@ -44,6 +48,7 @@ enum { SecServer, SecPlayback, SecAppearance, SecNetwork, SecData, SecAbout, Sec
 {
     switch (s) {
         case SecServer: return L(@"Server (your Raspberry Pi)");
+        case SecFeed: return L(@"For You");
         case SecPlayback: return L(@"Playback");
         case SecAppearance: return L(@"Appearance");
         case SecNetwork: return L(@"Network");
@@ -79,6 +84,15 @@ enum { SecServer, SecPlayback, SecAppearance, SecNetwork, SecData, SecAbout, Sec
         else if (r == 1) { cell.textLabel.text = L(@"Key"); cell.detailTextLabel.text = [TKSettings serverKey].length ? @"••••••" : L(@"None"); cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; }
         else if (r == 2) { cell.textLabel.text = L(@"Test connection"); cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator; }
         else { cell.textLabel.text = L(@"Stream through the server"); cell.accessoryView = [self switchOn:[TKSettings streamThroughServer] tag:10]; cell.selectionStyle = UITableViewCellSelectionStyleNone; }
+    } else if (s == SecFeed) {
+        if (r == 0) {
+            cell.textLabel.text = L(@"Video languages");
+            NSUInteger hidden = [TKSettings hiddenLanguages].count;
+            cell.detailTextLabel.text = hidden ? [NSString stringWithFormat:L(@"%lu hidden"), (unsigned long)hidden] : L(@"All");
+        } else {
+            cell.textLabel.text = L(@"What it learned");
+        }
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     } else if (s == SecPlayback) {
         if (r == 0) { cell.textLabel.text = L(@"Start muted"); cell.accessoryView = [self switchOn:[TKSettings startMuted] tag:20]; }
         else { cell.textLabel.text = L(@"Auto-advance"); cell.accessoryView = [self switchOn:[TKSettings autoAdvance] tag:21]; }
@@ -126,6 +140,9 @@ enum { SecServer, SecPlayback, SecAppearance, SecNetwork, SecData, SecAbout, Sec
         [a show];
     } else if (s == SecServer && r == 2) {
         [self testConnection];
+    } else if (s == SecFeed) {
+        UIViewController *next = r == 0 ? [[TKLanguagesViewController alloc] init] : [[TKTasteViewController alloc] init];
+        [self.navigationController pushViewController:next animated:YES];
     } else if (s == SecData && r == 0) {
         [[TKImageLoader shared] clearMemory];
         [[TKImageLoader shared] clearDiskWithCompletion:^{ [TKUtils alertWithTitle:nil message:L(@"Image cache cleared.")]; }];

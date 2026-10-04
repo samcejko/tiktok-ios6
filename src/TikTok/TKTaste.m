@@ -132,6 +132,10 @@ static BOOL TKGenericTag(NSString *tag)
         else if ([k hasPrefix:@"lang:"]) s += ([self.preferredLanguages containsObject:[k substringFromIndex:5]] ? 0.6 : -0.25) * share;
     }
     s += 0.15 * MIN(1.0, log10(1.0 + (double)MAX(0, v.likes)) / 6.0);   // a light nudge toward what others liked
+    if (v.createdAt > 0) {                                               // and toward what is new: today +0.35,
+        double days = MAX(0.0, ([[NSDate date] timeIntervalSince1970] - v.createdAt) / 86400.0);   // in ten days a third,
+        s += 0.35 * exp(-days / 10.0);                                                              // in a month nothing
+    }
     return s;
 }
 
@@ -229,6 +233,75 @@ static BOOL TKGenericTag(NSString *tag)
     [self.weights removeAllObjects];
     [self.topics removeAllObjects];
     self.updates = 0;
+    [self persist];
+}
+
+#pragma mark - What it learned (for the screen that shows it)
+
++ (NSString *)localizedTopicName:(NSInteger)topicId
+{
+    switch (topicId) {
+        case 100: return L(@"Anime & Comics");
+        case 101: return L(@"Shows");
+        case 102: return L(@"Beauty Care");
+        case 103: return L(@"Games");
+        case 104: return L(@"Comedy");
+        case 105: return L(@"Daily Life");
+        case 106: return L(@"Family");
+        case 107: return L(@"Relationship");
+        case 108: return L(@"Drama");
+        case 109: return L(@"Outfit");
+        case 110: return L(@"Lipsync");
+        case 111: return L(@"Food");
+        case 112: return L(@"Sports");
+        case 113: return L(@"Animals");
+        case 114: return L(@"Society");
+        case 115: return L(@"Cars");
+        case 116: return L(@"Education");
+        case 117: return L(@"Fitness & Health");
+        case 118: return L(@"Technology");
+        case 119: return L(@"Singing & Dancing");
+        default: return L(@"Other");
+    }
+}
+
+- (NSArray *)featureWeightsWithPrefix:(NSString *)prefix
+{
+    NSMutableArray *out = [NSMutableArray array];
+    for (NSString *k in self.weights) {
+        double w = [self.weights[k] doubleValue];
+        if ([k hasPrefix:prefix] && fabs(w) >= 0.1) [out addObject:@[ k, @(w) ]];
+    }
+    [out sortUsingComparator:^NSComparisonResult(NSArray *a, NSArray *b) {
+        return [@(fabs([b[1] doubleValue])) compare:@(fabs([a[1] doubleValue]))];
+    }];
+    return out;
+}
+
+- (NSArray *)topicRecords
+{
+    NSMutableArray *out = [NSMutableArray array];
+    for (NSNumber *t in [TKTaste topicIds]) {
+        double a, b;
+        [self topic:t.integerValue alpha:&a beta:&b];
+        if (a + b <= 2.01) continue;
+        [out addObject:@{ @"id": t, @"rate": @(a / (a + b)), @"seen": @(a + b - 2.0) }];
+    }
+    [out sortUsingComparator:^NSComparisonResult(NSDictionary *x, NSDictionary *y) { return [y[@"rate"] compare:x[@"rate"]]; }];
+    return out;
+}
+
+- (void)forgetFeature:(NSString *)key
+{
+    if (!key.length) return;
+    [self.weights removeObjectForKey:key];
+    [self persist];
+}
+
+- (void)forgetTopic:(NSInteger)topicId
+{
+    [self.topics removeObjectForKey:[NSString stringWithFormat:@"%ld", (long)topicId]];
+    [self.weights removeObjectForKey:[NSString stringWithFormat:@"cat:%ld", (long)topicId]];
     [self persist];
 }
 
