@@ -11,9 +11,11 @@ on the Pi fixes it without touching the app.
 Endpoints (all JSON unless noted):
   GET /health
   GET /user?name=<handle>&count=30     a creator's recent videos (list of lightweight items)
-  GET /resolve?id=<id|url>[&user=<handle>]  one video with a fresh playable URL and the headers to send
+  GET /resolve?id=<id|url>[&user=<handle>][&vcodec=h264][&maxh=1280]  one video with a fresh playable URL and
+                                       the headers to send; an H.264 rendition by default (iOS 6 has no HEVC decoder)
   GET /comments?id=<id|url>&count=40    top-level comments (best effort; empty if TikTok withholds them)
   GET /proxy?u=<playUrl>               streams the video bytes through the Pi (fallback / save); CDN hosts only
+  GET /yt/resolve?id=<youtube id|url>  fresh YouTube stream URLs for the Tubie app (see the YouTube section)
 Set TIKIE_KEY to require ?k=<key> (or X-Tikie-Key header) on every call when you expose this beyond the LAN.
 """
 import json
@@ -151,11 +153,34 @@ def _cookie_header(ydl, for_url):
         pass
     return "; ".join(parts)
 
-def resolve(ref, user=None):
+def _long_side(f):
+    return max(f.get("width") or 0, f.get("height") or 0)
+
+def pick_format(info, vcodec, maxh):
+    """TikTok serves each video as h265 (bytevc1) and usually also as h264. yt-dlp's default pick prefers h265,
+    which iOS 6 cannot decode (the sound plays over a black picture), so choose an h264 rendition: the largest whose
+    long side fits maxh (the device's screen), else the smallest above it. The watermarked "download" file is h264
+    too and is the last resort. None = no preference or nothing suitable: the caller keeps yt-dlp's pick."""
+    if vcodec != "h264":
+        return None
+    fmts = [f for f in (info.get("formats") or []) if f.get("url")]
+    h264 = [f for f in fmts if (f.get("vcodec") or "").lower().startswith(("h264", "avc"))]
+    cands = [f for f in h264 if f.get("format_id") != "download"] or h264
+    if not cands:
+        return None
+    sized = [f for f in cands if _long_side(f) > 0]
+    fit = [f for f in sized if _long_side(f) <= maxh]
+    if fit:
+        return max(fit, key=lambda f: (_long_side(f), f.get("tbr") or 0))
+    if sized:
+        return min(sized, key=lambda f: (_long_side(f), -(f.get("tbr") or 0)))
+    return cands[0]
+
+def resolve(ref, user=None, vcodec="h264", maxh=1280):
     vid = video_id(ref)
     if not vid:
         raise ValueError("no video id")
-    ckey = "resolve:%s" % vid
+    ckey = "resolve:%s:%s:%d" % (vid, vcodec, maxh)
     cached = CACHE.get(ckey)
     if cached is not None:
         return cached
@@ -167,23 +192,32 @@ def resolve(ref, user=None):
         url = "https://www.tiktok.com/@_/video/%s" % vid   # TikTok redirects to the right handle
     with _YDL_LOCK, _ydl({"noplaylist": True}) as ydl:
         info = ydl.extract_info(url, download=False)
-        play = info.get("url")
-        fmts = info.get("formats") or []
-        if not play and fmts:
-            mp4s = [f for f in fmts if (f.get("ext") == "mp4" and f.get("url"))]
-            mp4s.sort(key=lambda f: (f.get("tbr") or 0))
-            play = (mp4s[-1] if mp4s else fmts[-1]).get("url")
+        chosen = pick_format(info, vcodec, maxh)
+        if chosen:
+            play = chosen.get("url")
+        else:
+            play = info.get("url")
+            fmts = info.get("formats") or []
+            if not play and fmts:
+                mp4s = [f for f in fmts if (f.get("ext") == "mp4" and f.get("url"))]
+                mp4s.sort(key=lambda f: (f.get("tbr") or 0))
+                play = (mp4s[-1] if mp4s else fmts[-1]).get("url")
         headers = {"User-Agent": UA, "Referer": "https://www.tiktok.com/"}
         if isinstance(info.get("http_headers"), dict):
             headers.update(info["http_headers"])
+        if chosen and isinstance(chosen.get("http_headers"), dict):
+            headers.update(chosen["http_headers"])
         cookie = _cookie_header(ydl, play)
         if cookie:
             headers["Cookie"] = cookie
+    src = chosen or info
     out = item_from_info(info)
     out["playUrl"] = play
     out["headers"] = headers
-    out["width"] = info.get("width") or 0
-    out["height"] = info.get("height") or 0
+    out["width"] = src.get("width") or 0
+    out["height"] = src.get("height") or 0
+    out["vcodec"] = src.get("vcodec") or ""
+    out["formatId"] = src.get("format_id") or ""
     out["music"] = (info.get("track") or info.get("artist") or "")
     if play:
         CACHE.put("hdr:" + play, headers, 1800)     # /proxy reuses the exact headers this URL needs
@@ -211,6 +245,124 @@ def comments(ref, count):
     except Exception as e:
         sys.stderr.write("comments failed for %s: %s\n" % (vid, e))
     CACHE.put(ckey, out, 600)
+    return out
+
+# --- YouTube (added for the Tubie iOS 6 app; everything above is unchanged) ------
+# Gives the phone a fresh, playable YouTube stream so it can get past the ~60 s PO-token wall that caps the
+# adaptive files when the device fetches them itself. Returns the best progressive MP4 (<=720p, H.264+AAC, plays
+# straight away on iOS 6) plus the best adaptive H.264 video and AAC audio (for a later 1080p remux in the app).
+
+YT_UA = ("com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3 like Mac OS X)")
+
+def yt_video_id(s):
+    s = (s or "").strip()
+    m = re.search(r"(?:v=|/shorts/|/embed/|youtu\.be/|/v/|/live/)([A-Za-z0-9_-]{11})", s)
+    if m:
+        return m.group(1)
+    return s if re.fullmatch(r"[A-Za-z0-9_-]{11}", s) else None
+
+def _ydl_yt(opts):
+    # yt-dlp's default player clients return the full H.264 DASH ladder (itags 133-137 etc.) with direct URLs;
+    # forcing ios/web cut it down to the 360p progressive only, so leave the clients at their defaults.
+    base = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+        # a permissive selector so extract_info never fails on "no requested format" (we read info["formats"]
+        # ourselves anyway, and the container has no ffmpeg to merge a video+audio pick)
+        "format": "bv*+ba/b/bv*/ba",
+        "ignore_no_formats_error": True,
+    }
+    base.update(opts)
+    return yt_dlp.YoutubeDL(base)
+
+def _yt_pick(fmts, want):
+    """want: 'prog' (video+audio mp4 <=720), 'video' (avc1 video-only <=1080), 'audio' (m4a audio-only)."""
+    out = []
+    for f in fmts:
+        if not f.get("url"):
+            continue
+        va = f.get("vcodec") not in (None, "none")
+        aa = f.get("acodec") not in (None, "none")
+        vc = f.get("vcodec") or ""
+        h = f.get("height") or 0
+        if want == "prog":
+            if not (va and aa and (f.get("ext") == "mp4") and vc.startswith("avc") and (h == 0 or h <= 720)):
+                continue
+        elif want == "video":
+            if not (va and not aa and vc.startswith("avc") and (h == 0 or h <= 1080)):
+                continue
+        elif want == "audio":
+            ac = f.get("acodec") or ""
+            if not (aa and not va and (ac.startswith("mp4a") or f.get("ext") == "m4a")):
+                continue
+        out.append(f)
+    if want == "audio":
+        out.sort(key=lambda f: (f.get("abr") or f.get("tbr") or 0))
+    else:
+        out.sort(key=lambda f: ((f.get("height") or 0), (f.get("tbr") or 0)))
+    return out[-1] if out else None
+
+def _yt_headers(info, f):
+    h = {"User-Agent": YT_UA}
+    if isinstance(info.get("http_headers"), dict):
+        h.update(info["http_headers"])
+    if isinstance(f.get("http_headers"), dict):
+        h.update(f["http_headers"])
+    return h
+
+def resolve_yt(ref):
+    vid = yt_video_id(ref)
+    if not vid:
+        raise ValueError("no youtube video id")
+    ckey = "yt:%s" % vid
+    cached = CACHE.get(ckey)
+    if cached is not None:
+        return cached
+    url = "https://www.youtube.com/watch?v=%s" % vid
+    with _YDL_LOCK, _ydl_yt({}) as ydl:
+        info = ydl.extract_info(url, download=False)
+    fmts = info.get("formats") or []
+    # A map itag -> fresh direct URL for every format served straight over https (the DASH ladder 133-137 etc. and
+    # the audio 139/140), skipping HLS. Tubie keeps the sidx byte ranges it already got from its own InnerTube for
+    # each itag and just swaps in these URLs, so the proxy can remux the whole video (no 60 s PO-token wall).
+    formats = {}
+    audio_pick = {}   # base itag -> (score, url): for dubbed videos keep only the original/default track
+    for f in fmts:
+        u = f.get("url")
+        if not u or (f.get("protocol") or "") not in ("https", "http"):
+            continue   # skip m3u8/HLS; we want the directly-ranged files
+        fid = str(f.get("format_id") or "")
+        base = fid.split("-")[0]   # multi-language audio comes as "140-0".."140-19"
+        if not base.isdigit():
+            continue
+        is_audio = f.get("acodec") not in (None, "none") and f.get("vcodec") in (None, "none")
+        if is_audio and "-" in fid:
+            # the app's sidx ranges are for the ORIGINAL audio, so pick the track yt-dlp marks default/original
+            score = f.get("language_preference") or -1
+            note = (f.get("format_note") or "").lower()
+            if "default" in note or "original" in note:
+                score += 1000
+            if base not in audio_pick or score > audio_pick[base][0]:
+                audio_pick[base] = (score, u)
+        else:
+            formats[base] = u
+    for base, (score, u) in audio_pick.items():
+        formats.setdefault(base, u)
+    prog = _yt_pick(fmts, "prog")
+    out = {
+        "id": vid,
+        "title": info.get("title") or "",
+        "duration": info.get("duration") or 0,
+        "isLive": bool(info.get("is_live")),
+        "formats": formats,
+    }
+    if prog:
+        out["playUrl"] = prog.get("url")
+        out["playHeight"] = prog.get("height") or 0
+        out["playItag"] = str(prog.get("format_id") or "")
+    CACHE.put(ckey, out, 3600)   # googlevideo URLs last ~6 h; refresh well before that
     return out
 
 # --- HTTP ----------------------------------------------------------------
@@ -244,7 +396,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
         q = urllib.parse.parse_qs(parsed.query)
-        if path == "/health":
+        if path == "/health" or path == "/yt/health":
             return self._send_json({"ok": True, "ytdlp": getattr(yt_dlp.version, "__version__", "?")})
         if not self._authorized(q):
             return self._send_json({"error": "unauthorized"}, 401)
@@ -253,7 +405,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"items": user_list(q.get("name", [""])[0], int(q.get("count", ["30"])[0]))})
             if path == "/resolve":
                 ref = q.get("id", [""])[0] or q.get("url", [""])[0]
-                return self._send_json(resolve(ref, q.get("user", [None])[0]))
+                # what the device can show; app builds that send nothing get the iOS 6 defaults
+                vcodec = (q.get("vcodec", ["h264"])[0] or "h264").lower()
+                try:
+                    maxh = int(q.get("maxh", ["1280"])[0])
+                except ValueError:
+                    maxh = 1280
+                maxh = max(240, min(maxh, 4096))
+                return self._send_json(resolve(ref, q.get("user", [None])[0], vcodec, maxh))
+            if path == "/yt/resolve":
+                return self._send_json(resolve_yt(q.get("id", [""])[0] or q.get("url", [""])[0]))
             if path == "/comments":
                 ref = q.get("id", [""])[0] or q.get("url", [""])[0]
                 return self._send_json({"items": comments(ref, int(q.get("count", ["40"])[0]))})
