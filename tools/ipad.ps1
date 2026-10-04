@@ -68,7 +68,7 @@ function Install-IPadPackage {
         if ($out -match 'DEB_OK') { $installed = $true }
     }
     if (-not $installed) { throw "Nothing installed" }
-    Write-Host "Done. Tap the Tikie icon on the iPad."
+    Write-Host "Done. Tap the TikTak icon on the iPad."
 }
 
 function Get-IPadCrashLogs {
