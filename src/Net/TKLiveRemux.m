@@ -147,6 +147,11 @@ static void TKAppendTimestamp(NSMutableData *pes, uint8_t prefix, int64_t ts)
     NSUInteger _nextSequence;
     uint8_t _patCC, _pmtCC, _videoCC, _audioCC;
     NSMutableData *_pes;
+    // TikTok's CDN ends every pull after half a minute or so; the next one may start its clock anywhere
+    BOOL _rebase;                     // a new pull: its first key frame follows on from the last time stamp sent
+    int64_t _tsOffset;                // added to the pull's own time stamps
+    int64_t _lastTs;                  // the latest time stamp sent (pictures or sound)
+    NSUInteger _mediaTags;            // pictures and sound frames read, all pulls together
 }
 
 - (instancetype)initWithURL:(NSURL *)url headers:(NSDictionary *)headers
@@ -179,51 +184,101 @@ static void TKAppendTimestamp(NSMutableData *pes, uint8_t prefix, int64_t ts)
     [self stop];
 }
 
-// The reading thread: the FLV comes in as it is sent (redirects followed here) and is parsed as it comes
+// The reading thread. TikTok's CDN ends every pull after half a minute or so (with or without its cookies; the address
+// itself lasts two weeks): the next pull carries on at once, its time stamps joined to the last ones, so the player
+// sees one unbroken stream. Pulls that bring no pictures three times in a row mean the stream is gone.
 - (void)run
 {
     @autoreleasepool {
         [[NSThread currentThread] setName:@"TKLiveRemux"];
-        NSURL *url = self.url;
-        for (int hop = 0; hop < 5 && !self.stopped; hop++) {
-            TKHTTPRequest *r = [[TKHTTPRequest alloc] initWithMethod:@"GET" URL:url];
-            NSMutableDictionary *h = [NSMutableDictionary dictionaryWithDictionary:self.headers ?: @{}];
-            h[@"Accept"] = @"*/*";
-            r.headers = h;
-            r.verifyTLS = [TKSettings verifyTLS];
-            r.highPriority = YES;
-            r.noCompression = YES;
-            r.connectTimeout = 15;
-            r.readTimeout = 20;
-            __block NSInteger status = 0;
-            __block NSURL *redirect = nil;
-            __weak TKLiveRemux *weakSelf = self;
-            __weak TKHTTPRequest *weakRequest = r;
-            r.onHeaders = ^(NSInteger s, NSDictionary *hdrs) {
-                status = s;
-                if (s >= 300 && s < 400 && [hdrs[@"location"] length]) redirect = [[NSURL URLWithString:hdrs[@"location"] relativeToURL:url] absoluteURL];
-            };
-            r.onData = ^(NSData *data) {
-                TKLiveRemux *me = weakSelf;
-                if (!me || me.stopped) { [weakRequest cancel]; return; }
-                if (status >= 300) return;
-                @autoreleasepool { [me consume:data]; }
-                if ([NSDate timeIntervalSinceReferenceDate] - me.lastAsked > TKLiveIdleSeconds) {
-                    TKLog(@"live: nobody watching any more, stopping");
-                    [me stop];
+        NSInteger failures = 0, pulls = 0;
+        while (!self.stopped) {
+            NSTimeInterval began = [NSDate timeIntervalSinceReferenceDate];
+            NSUInteger tagsBefore = _mediaTags;
+            NSString *why = nil;
+            BOOL completed = [self pullOnce:&why];
+            if (self.stopped) break;
+            pulls++;
+            if (completed && _mediaTags > tagsBefore) {
+                failures = 0;
+                TKLog(@"live: the CDN ended pull %ld after %.0f s, pulling again", (long)pulls, [NSDate timeIntervalSinceReferenceDate] - began);
+            } else {
+                TKLog(@"live: pull %ld brought nothing (%@)", (long)pulls, why ?: @"no pictures");
+                if (++failures >= 3) {
+                    self.failure = why ?: L(@"The live stream ended.");
+                    break;
                 }
-            };
-            __block NSError *failure = nil;
-            r.onComplete = ^(NSError *error) { failure = error; };
-            self.request = r;
-            [r runSynchronously];
-            if (redirect.host.length) { url = redirect; continue; }
-            if (!self.stopped) self.failure = failure.localizedDescription ?: (status >= 300 ? [NSString stringWithFormat:@"HTTP %ld", (long)status] : L(@"The live stream ended."));
-            break;
+                [NSThread sleepForTimeInterval:1.0];
+            }
+            [_pending setLength:0];
+            _headerDone = NO;
+            _rebase = YES;
         }
         self.stopped = YES;
         TKLog(@"live: reading ended (%@), %lu segments made", self.failure ?: @"stopped", (unsigned long)_nextSequence);
     }
+}
+
+// One pull: the FLV comes in as it is sent (redirects followed here) and is parsed as it comes. YES when the CDN ended
+// it in good order; NO with the reason otherwise.
+- (BOOL)pullOnce:(NSString **)why
+{
+    NSURL *url = self.url;
+    for (int hop = 0; hop < 5 && !self.stopped; hop++) {
+        TKHTTPRequest *r = [[TKHTTPRequest alloc] initWithMethod:@"GET" URL:url];
+        NSMutableDictionary *h = [NSMutableDictionary dictionaryWithDictionary:self.headers ?: @{}];
+        h[@"Accept"] = @"*/*";
+        r.headers = h;
+        r.verifyTLS = [TKSettings verifyTLS];
+        r.highPriority = YES;
+        r.noCompression = YES;
+        r.connectTimeout = 15;
+        r.readTimeout = 20;
+        __block NSInteger status = 0;
+        __block NSURL *redirect = nil;
+        __weak TKLiveRemux *weakSelf = self;
+        __weak TKHTTPRequest *weakRequest = r;
+        NSURL *current = url;
+        r.onHeaders = ^(NSInteger s, NSDictionary *hdrs) {
+            status = s;
+            if (s >= 300 && s < 400 && [hdrs[@"location"] length]) redirect = [[NSURL URLWithString:hdrs[@"location"] relativeToURL:current] absoluteURL];
+        };
+        r.onData = ^(NSData *data) {
+            TKLiveRemux *me = weakSelf;
+            if (!me || me.stopped) { [weakRequest cancel]; return; }
+            if (status >= 300) return;
+            @autoreleasepool { [me consume:data]; }
+            if ([NSDate timeIntervalSinceReferenceDate] - me.lastAsked > TKLiveIdleSeconds) {
+                TKLog(@"live: nobody watching any more, stopping");
+                [me stop];
+            }
+        };
+        __block NSError *failure = nil;
+        r.onComplete = ^(NSError *error) { failure = error; };
+        self.request = r;
+        [r runSynchronously];
+        if (redirect.host.length) { url = redirect; continue; }
+        if (failure) { if (why) *why = failure.localizedDescription; return NO; }
+        if (status < 200 || status >= 300) { if (why) *why = [NSString stringWithFormat:@"HTTP %ld", (long)status]; return NO; }
+        return YES;
+    }
+    if (why) *why = @"too many redirects";
+    return NO;
+}
+
+// A frame's time on the output's clock: 90 kHz, a second ahead (nothing comes out negative), and unbroken across the
+// pulls - the first key frame of a new pull follows a frame's length after the last time stamp sent
+- (int64_t)timestamp:(uint32_t)ms
+{
+    int64_t raw = (int64_t)ms * 90 + TKLiveLead;
+    if (_rebase) {
+        _rebase = NO;
+        if (_lastTs > 0) _tsOffset = _lastTs + 3000 - raw;
+    }
+    int64_t ts = raw + _tsOffset;
+    if (ts > _lastTs) _lastTs = ts;
+    _mediaTags++;
+    return ts;
 }
 
 #pragma mark - FLV
@@ -281,10 +336,10 @@ static void TKAppendTimestamp(NSMutableData *pes, uint8_t prefix, int64_t ts)
         o += len;
     }
     if (sps.length && pps.length) {
+        if (![sps isEqualToData:_sps]) TKLog(@"live: H.264 profile %u level %u, NAL length %lu", d[1], d[3], (unsigned long)lengthSize);
         _sps = sps;
         _pps = pps;
         _nalLengthSize = lengthSize;
-        TKLog(@"live: H.264 profile %u level %u, NAL length %lu", d[1], d[3], (unsigned long)lengthSize);
     }
 }
 
@@ -302,8 +357,9 @@ static void TKAppendTimestamp(NSMutableData *pes, uint8_t prefix, int64_t ts)
     NSUInteger n = len - 5;
     if (packetType == 0) { [self parseAVCConfig:d length:n]; return; }
     if (packetType != 1 || !_sps.length) return;
+    if (_rebase && !keyframe) return;          // (a new pull is joined at its first key frame)
 
-    int64_t dts = (int64_t)ms * 90 + TKLiveLead;
+    int64_t dts = [self timestamp:ms];
     int64_t pts = dts + (int64_t)cts * 90;
     if (pts < dts) pts = dts;
     if (keyframe) [self cutAt:dts];
@@ -352,10 +408,10 @@ static void TKAppendTimestamp(NSMutableData *pes, uint8_t prefix, int64_t ts)
         _haveAudioConfig = YES;
         return;
     }
-    if (!_haveAudioConfig || _currentStart < 0) return;
+    if (!_haveAudioConfig || _currentStart < 0 || _rebase) return;   // (a new pull: sound once its pictures are joined)
     const uint8_t *frame = p + 2;
     NSUInteger size = len - 2;
-    int64_t pts = (int64_t)ms * 90 + TKLiveLead;
+    int64_t pts = [self timestamp:ms];
     NSInteger profile = _audioObjectType >= 1 && _audioObjectType <= 4 ? _audioObjectType - 1 : 1;   // (AAC-LC when in doubt)
     NSUInteger frameLength = size + 7;
     uint8_t adts[7] = {

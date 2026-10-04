@@ -30,6 +30,7 @@
 // while the player asks; -stopLiveStreams ends every one (the live screen closed).
 - (NSString *)proxyURLForLiveFLV:(NSURL *)url headers:(NSDictionary *)headers;
 - (void)stopLiveStreams;
+- (BOOL)liveStreamRunning;     // NO once every one handed out has stopped (ended, or broken off for good)
 
 // The media playlist served last carried a stitched-in advertisement (the player shows a note)
 @property (atomic, readonly) BOOL adBreakActive;

@@ -111,6 +111,20 @@ static BOOL TKCodePointHasNoGlyph(UTF32Char c)
     return NO;
 }
 
+// The "fancy fonts" of names and captions (𝐀𝐝𝐡𝐚𝐦, 𝓢𝓪𝓻𝓪, 𝟏𝟐𝟑) are Unicode's mathematical letters and digits, which no font
+// of this system has: they become the plain letters they stand for (0 = not one of them)
+static unichar TKPlainLetter(UTF32Char c)
+{
+    if (c >= 0x1D400 && c <= 0x1D6A3) {   // A-Z a-z in thirteen styles, one after another
+        UTF32Char i = (c - 0x1D400) % 52;
+        return (unichar)(i < 26 ? 'A' + i : 'a' + (i - 26));
+    }
+    if (c == 0x1D6A4) return 'i';
+    if (c == 0x1D6A5) return 'j';
+    if (c >= 0x1D7CE && c <= 0x1D7FF) return (unichar)('0' + (c - 0x1D7CE) % 10);   // 0-9 in five styles
+    return 0;
+}
+
 + (NSString *)displayText:(NSString *)text
 {
     return [self displayText:text dropped:nil];
@@ -132,7 +146,12 @@ static BOOL TKCodePointHasNoGlyph(UTF32Char c)
                 len = 2;
             }
         }
-        if (TKCodePointHasNoGlyph(cp)) {
+        unichar plain = len > 1 ? TKPlainLetter(cp) : 0;
+        if (plain) {
+            if (!out) out = [[text substringToIndex:i] mutableCopy];
+            [out appendFormat:@"%C", plain];
+            [dropped addObject:[NSValue valueWithRange:NSMakeRange(i + 1, len - 1)]];   // (one of its two units)
+        } else if (TKCodePointHasNoGlyph(cp)) {
             if (!out) out = [[text substringToIndex:i] mutableCopy];
             NSCharacterSet *spaces = [NSCharacterSet whitespaceCharacterSet];
             // the emoji's own variation selector goes with it; at the start of the text so does the space after it

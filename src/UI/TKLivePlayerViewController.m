@@ -36,6 +36,7 @@ static NSInteger TKStreamLongSide(NSDictionary *s)
 @property (nonatomic, copy) NSString *roomId;
 @property (nonatomic, strong) TKLiveRoom *room;
 @property (nonatomic, copy) NSString *streamDescription;    // "hd 720x1280 FLV"
+@property (nonatomic) BOOL repacked;                       // the FLV repacked by the media proxy (not an HLS address)
 @property (nonatomic, strong) AVPlayer *player;
 @property (nonatomic, strong) AVPlayerLayer *playerLayer;
 @property (nonatomic, strong) NSTimer *ticker;
@@ -340,7 +341,8 @@ static NSInteger TKStreamLongSide(NSDictionary *s)
     NSString *url = !source ? nil : hls.length ? [proxy proxyURLForURL:source upstreamHeaders:self.room.headers]
                                                : [proxy proxyURLForLiveFLV:source headers:self.room.headers];
     if (!url) { [self showMessage:L(@"This live stream could not be loaded.")]; return; }
-    self.streamDescription = [NSString stringWithFormat:@"%@ %@ %@", TKStr(s[@"quality"]) ?: @"?", TKStr(s[@"resolution"]) ?: @"", hls.length ? @"HLS" : @"FLV"];
+    self.repacked = hls.length == 0;
+    self.streamDescription =[NSString stringWithFormat:@"%@ %@ %@", TKStr(s[@"quality"]) ?: @"?", TKStr(s[@"resolution"]) ?: @"", hls.length ? @"HLS" : @"FLV"];
     TKLog(@"live: room %@ (@%@): %@", self.roomId, self.room.ownerHandle, self.streamDescription);
     self.messageLabel.hidden = YES;
     [self.spinner startAnimating];
@@ -424,6 +426,12 @@ static NSInteger TKStreamLongSide(NSDictionary *s)
     }
     // after a stall the player of iOS 6 stays paused: it is asked again once it has enough
     if (p.rate == 0 && item.status == AVPlayerItemStatusReadyToPlay && item.playbackLikelyToKeepUp) [p play];
+    // the repacking gave up (TikTok's CDN stopped answering): no use waiting for the player to notice
+    if (self.repacked && now - self.lastProgress > 3 && ![[TKMediaProxy shared] liveStreamRunning]) {
+        TKLog(@"live: the repacked stream stopped, opening it again");
+        [self startAgainOrGiveUp:nil];
+        return;
+    }
     if (now - self.lastProgress > TKLiveStallLimit) {
         TKLog(@"live: no picture for %.0f s, opening the stream again", now - self.lastProgress);
         [self startAgainOrGiveUp:nil];

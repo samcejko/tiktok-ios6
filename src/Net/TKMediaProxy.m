@@ -381,6 +381,14 @@ static BOOL TKProxyPortAnswers(uint16_t port)
     }
 }
 
+- (BOOL)liveStreamRunning
+{
+    @synchronized (self) {
+        for (TKProxyEntry *e in [self.entries allValues]) if (e.kind == TKProxyEntryLive && !e.remux.stopped) return YES;
+    }
+    return NO;
+}
+
 - (void)serveLive:(TKLiveRemux *)remux name:(NSString *)name method:(NSString *)method to:(int)fd
 {
     if ([name isEqualToString:@"live.m3u8"]) {
