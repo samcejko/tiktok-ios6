@@ -184,6 +184,20 @@ static BOOL TKPressView(UIView *v, NSString *text)
         }
         return YES;
     }
+    if ([target isEqualToString:@"rotate"]) {
+        // (debug only, for testing without turning the iPad: a private UIDevice method turns the interface)
+        NSInteger o = [params[@"o"] isEqualToString:@"landscape"] ? UIInterfaceOrientationLandscapeLeft : UIInterfaceOrientationPortrait;
+        SEL sel = NSSelectorFromString(@"setOrientation:");
+        if ([[UIDevice currentDevice] respondsToSelector:sel]) {
+            NSInvocation *inv = [NSInvocation invocationWithMethodSignature:[UIDevice instanceMethodSignatureForSelector:sel]];
+            inv.selector = sel;
+            inv.target = [UIDevice currentDevice];
+            [inv setArgument:&o atIndex:2];
+            [inv invoke];
+        }
+        TKLog(@"Rotate to %@: interface now %ld", params[@"o"], (long)[UIApplication sharedApplication].statusBarOrientation);
+        return YES;
+    }
     if ([target isEqualToString:@"saved"]) {
         if ([params[@"clear"] isEqualToString:@"1"]) for (NSDictionary *d in [TKSettings savedVideos]) [TKSettings unsaveVideo:TKStr(d[@"id"])];
         TKLog(@"Saved videos: %lu", (unsigned long)[TKSettings savedVideos].count);

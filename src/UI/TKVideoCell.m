@@ -11,6 +11,8 @@
 
 static void *TKItemStatusCtx = &TKItemStatusCtx;
 static const CGFloat TKScrubZoneHeight = 34;
+static const NSTimeInterval TKPhotoSeconds = 3.5;        // a photo post moves on to its next picture after this
+static const CGFloat TKPhotoMaxPixels = 1024;             // longer side of a decoded picture (a full 1080x1450 is 6 MB)
 
 // The FourCC of a codec name ("avc1", "hvc1", ...), as a video track's format description reports it
 static FourCharCode TKFourCC(const char *s)
@@ -19,7 +21,7 @@ static FourCharCode TKFourCC(const char *s)
            ((FourCharCode)(unsigned char)s[2] << 8) | (FourCharCode)(unsigned char)s[3];
 }
 
-@interface TKVideoCell () <UIGestureRecognizerDelegate>
+@interface TKVideoCell () <UIGestureRecognizerDelegate, UIScrollViewDelegate>
 @property (nonatomic, strong) TKVideo *video;
 @property (nonatomic) BOOL playing;
 @property (nonatomic) NSTimeInterval playedSeconds;
@@ -58,6 +60,14 @@ static FourCharCode TKFourCC(const char *s)
 @property (nonatomic) BOOL usingServerProxy;
 @property (nonatomic) BOOL undecodableVideo;          // the picture uses a codec the device has no decoder for
 @property (nonatomic) NSUInteger proxyGeneration;     // the media proxy's generation the player's URL belongs to
+// A photo post: a sideways pager of its pictures (only those next to the one shown are loaded), a timer that moves on
+// and counts the time watched; its sound, when TikTok gives one, plays through the same player as a video's
+@property (nonatomic, strong) UIScrollView *photoPager;
+@property (nonatomic, strong) NSMutableArray *photoViews;     // TKImageView per picture
+@property (nonatomic, strong) UIPageControl *photoDots;
+@property (nonatomic, strong) NSTimer *photoTimer;
+@property (nonatomic) NSTimeInterval photoShownFor;            // how long the current picture has been up
+@property (nonatomic) NSInteger photoIndex;
 @end
 
 @implementation TKVideoCell
@@ -222,6 +232,13 @@ static FourCharCode TKFourCC(const char *s)
     self.authorButton.frame = CGRectMake(8, CGRectGetMinY(self.authorLabel.frame) - 8, MIN(textW, ceilf(nameSize.width)) + 16, 36);
     self.avatarButton.frame = CGRectMake(railX + 1, y - 64, 46, 46);
     self.errorLabel.frame = CGRectMake(30, b.size.height / 2 - 40, b.size.width - 60, 80);
+    if (self.photoPager) {
+        self.photoPager.frame = b;
+        self.photoPager.contentSize = CGSizeMake(b.size.width * self.photoViews.count, b.size.height);
+        for (NSUInteger i = 0; i < self.photoViews.count; i++) [self.photoViews[i] setFrame:CGRectMake(b.size.width * i, 0, b.size.width, b.size.height)];
+        self.photoPager.contentOffset = CGPointMake(b.size.width * self.photoIndex, 0);
+        self.photoDots.frame = CGRectMake(0, 62, b.size.width, 20);
+    }
     self.scrubZone.frame = CGRectMake(0, b.size.height - TKScrubZoneHeight, b.size.width, TKScrubZoneHeight);
     self.scrubLabel.frame = CGRectMake(0, b.size.height - TKScrubZoneHeight - 40, b.size.width, 24);
     if (!self.noteLabel.hidden) {
@@ -257,6 +274,7 @@ static FourCharCode TKFourCC(const char *s)
 - (void)showVideo:(TKVideo *)video
 {
     [self teardownPlayer];
+    [self tearDownPhotos];
     self.video = video;
     self.playbackRate = 1.0f;
     self.usingServerProxy = [TKSettings streamThroughServer];
@@ -291,14 +309,19 @@ static FourCharCode TKFourCC(const char *s)
 
 #pragma mark - Playback
 
+- (BOOL)isPhotoPost { return self.video.isPhoto && self.video.imageURLs.count > 0; }
+
+// what the player plays: a video's stream, or a photo post's sound
+- (NSString *)mediaURL { return self.video.isPhoto ? self.video.audioURL : self.video.playURL; }
+
 - (NSString *)buildUpstreamAndHeaders:(NSDictionary **)outHeaders
 {
     if (self.usingServerProxy) {
         *outHeaders = nil;
-        return [TKTikTok proxyURLForPlayURL:self.video.playURL];
+        return [TKTikTok proxyURLForPlayURL:[self mediaURL]];
     }
     *outHeaders = self.video.playHeaders;
-    return self.video.playURL;
+    return [self mediaURL];
 }
 
 // Item and player through the media proxy. The picture (the layer) comes separately: a page prepared ahead has
@@ -335,6 +358,11 @@ static FourCharCode TKFourCC(const char *s)
 
 - (void)preparePlayback
 {
+    if ([self isPhotoPost]) {
+        [self setUpPhotos];
+        if (self.video.audioURL.length && !self.player) [self buildPlayer];
+        return;
+    }
     if (self.player || !self.video.playURL.length) return;
     [self buildPlayer];
 }
@@ -342,7 +370,15 @@ static FourCharCode TKFourCC(const char *s)
 - (void)startPlaybackMuted:(BOOL)muted
 {
     self.wantMuted = muted;
-    if (!self.video.playURL.length) { [self showError:L(@"This video could not be loaded.")]; return; }
+    if (!self.video.playable) { [self showError:L(@"This video could not be loaded.")]; return; }
+    if ([self isPhotoPost]) {
+        [self setUpPhotos];
+        self.errorLabel.hidden = YES;
+        if (self.video.audioURL.length && !self.player) [self buildPlayer];   // (the sound; no picture layer)
+        [self applyVolume];
+        if (self.active && !self.playing) [self resume];
+        return;
+    }
     [[TKMediaProxy shared] ensureRunning];
     // This page already has its player (prepared ahead, or we came back to it): keep that one. Building another
     // here left the first one playing as well - the sound came twice.
@@ -359,9 +395,9 @@ static FourCharCode TKFourCC(const char *s)
 
 - (void)resume
 {
-    if (!self.player) return;
-    self.player.rate = self.playbackRate;    // (-play would reset a 2x speed)
-    self.playing = YES;
+    if (self.player) self.player.rate = self.playbackRate;    // (-play would reset a 2x speed)
+    if (self.player || [self isPhotoPost]) self.playing = YES;
+    if ([self isPhotoPost]) [self startPhotoTimer];
 }
 
 // AVPlayer has no volume/muted on iOS 6 (that is iOS 7+); mute by setting the item's audio mix to volume 0.
@@ -384,6 +420,7 @@ static FourCharCode TKFourCC(const char *s)
 
 - (NSTimeInterval)duration
 {
+    if ([self isPhotoPost]) return self.video.imageURLs.count * TKPhotoSeconds;   // one round through the pictures
     Float64 d = self.item ? CMTimeGetSeconds(self.item.duration) : 0;
     if (d > 0 && !isnan(d) && !isinf(d)) return d;
     return self.video.durationSeconds;
@@ -437,6 +474,11 @@ static FourCharCode TKFourCC(const char *s)
                 if (self.active && !self.playing) [self resume];
             }
         } else if (self.item.status == AVPlayerItemStatusFailed) {
+            if ([self isPhotoPost]) {      // a photo post's sound would not play: the pictures go on without it
+                TKLog(@"photo post %@: the sound failed (%@)", self.video.videoId, self.item.error.localizedDescription);
+                [self releasePlayer];
+                return;
+            }
             // the direct CDN URL can refuse a device on a different network than the Pi; fall back through the Pi
             if (!self.usingServerProxy && [TKTikTok proxyURLForPlayURL:self.video.playURL].length) {
                 TKLog(@"play failed direct, retrying via server proxy: %@", self.item.error.localizedDescription);
@@ -485,10 +527,11 @@ static FourCharCode TKFourCC(const char *s)
 {
     _active = active;
     if (active) {
-        if (self.player && self.playerLayer) [self resume];
+        if ((self.player && self.playerLayer) || [self isPhotoPost]) [self resume];
     } else {
         [self.player pause];
         self.playing = NO;
+        [self stopPhotoTimer];
         if (self.item) [self.item seekToTime:kCMTimeZero];
         self.lastTickTime = -1;
     }
@@ -526,7 +569,7 @@ static FourCharCode TKFourCC(const char *s)
 {
     if (g == self.scrubPan) {
         CGPoint v = [self.scrubPan velocityInView:self];
-        return self.player != nil && fabs(v.x) > fabs(v.y);
+        return self.player != nil && ![self isPhotoPost] && fabs(v.x) > fabs(v.y);
     }
     return YES;
 }
@@ -539,7 +582,7 @@ static FourCharCode TKFourCC(const char *s)
 - (void)togglePlay
 {
     [self noteTouched];
-    if (!self.player) return;
+    if (!self.player && ![self isPhotoPost]) return;
     if (self.playing) {
         [self.player pause];
         self.playing = NO;
@@ -668,7 +711,8 @@ static FourCharCode TKFourCC(const char *s)
 
 #pragma mark - Teardown
 
-- (void)teardownPlayer
+// the player alone (a photo post whose sound failed keeps showing its pictures)
+- (void)releasePlayer
 {
     if (self.timeObserver) { [self.player removeTimeObserver:self.timeObserver]; self.timeObserver = nil; }
     if (self.item) {
@@ -680,6 +724,115 @@ static FourCharCode TKFourCC(const char *s)
     self.playerLayer = nil;
     self.player = nil;
     self.item = nil;
+}
+
+#pragma mark - Photo posts
+
+- (void)setUpPhotos
+{
+    if (self.photoPager || ![self isPhotoPost]) return;
+    self.photoPager = [[UIScrollView alloc] initWithFrame:self.bounds];
+    self.photoPager.pagingEnabled = YES;
+    self.photoPager.showsHorizontalScrollIndicator = NO;
+    self.photoPager.showsVerticalScrollIndicator = NO;
+    self.photoPager.scrollsToTop = NO;
+    self.photoPager.delegate = self;
+    self.photoPager.backgroundColor = [UIColor blackColor];
+    [self insertSubview:self.photoPager aboveSubview:self.coverView];   // (under the labels and buttons)
+    self.photoViews = [NSMutableArray array];
+    for (NSUInteger i = 0; i < self.video.imageURLs.count; i++) {
+        TKImageView *iv = [[TKImageView alloc] initWithFrame:CGRectZero];
+        iv.contentMode = UIViewContentModeScaleAspectFit;
+        iv.backgroundColor = [UIColor blackColor];
+        iv.maxPixels = TKPhotoMaxPixels;
+        [self.photoPager addSubview:iv];
+        [self.photoViews addObject:iv];
+    }
+    self.photoDots = [[UIPageControl alloc] initWithFrame:CGRectZero];
+    self.photoDots.numberOfPages = (NSInteger)self.photoViews.count;
+    self.photoDots.hidesForSinglePage = YES;
+    self.photoDots.userInteractionEnabled = NO;
+    [self addSubview:self.photoDots];
+    self.photoIndex = 0;
+    self.photoShownFor = 0;
+    [self loadPhotosNear:0];
+    [self setNeedsLayout];
+}
+
+// the picture shown and its neighbours are loaded, the others let go (memory)
+- (void)loadPhotosNear:(NSInteger)index
+{
+    for (NSUInteger i = 0; i < self.photoViews.count; i++) {
+        TKImageView *iv = self.photoViews[i];
+        NSString *want = labs((long)i - (long)index) <= 1 ? self.video.imageURLs[i] : nil;
+        if (want ? ![iv.imageURL isEqualToString:want] : (iv.imageURL != nil)) [iv setImageURL:want placeholder:nil];
+    }
+    self.photoDots.currentPage = index;
+}
+
+- (void)showPhoto:(NSInteger)index animated:(BOOL)animated
+{
+    self.photoIndex = index;
+    self.photoShownFor = 0;
+    [self loadPhotosNear:index];
+    [self.photoPager setContentOffset:CGPointMake(index * self.photoPager.bounds.size.width, 0) animated:animated];
+}
+
+- (void)startPhotoTimer
+{
+    if (self.photoTimer) return;
+    self.photoTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(photoTick) userInfo:nil repeats:YES];
+}
+
+- (void)stopPhotoTimer
+{
+    [self.photoTimer invalidate];
+    self.photoTimer = nil;
+}
+
+- (void)photoTick
+{
+    if (!self.playing || !self.photoViews.count) return;      // (paused with a tap)
+    self.watchedSeconds += 0.5;
+    self.photoShownFor += 0.5;
+    CGFloat w = self.bounds.size.width * (CGFloat)((self.photoIndex + MIN(1.0, self.photoShownFor / TKPhotoSeconds)) / self.photoViews.count);
+    self.progressBar.frame = CGRectMake(0, self.bounds.size.height - 2, w, 2);
+    if (self.photoShownFor < TKPhotoSeconds) return;
+    NSInteger next = self.photoIndex + 1;
+    if (next >= (NSInteger)self.photoViews.count) {           // one round through the pictures: like a video's end
+        next = 0;
+        [self.delegate videoCellDidReachEnd:self];
+    }
+    [self showPhoto:next animated:YES];
+}
+
+- (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView
+{
+    if (scrollView != self.photoPager) return;
+    NSInteger index = (NSInteger)lround(scrollView.contentOffset.x / MAX((CGFloat)1, scrollView.bounds.size.width));
+    self.photoIndex = MAX(0, MIN(index, (NSInteger)self.photoViews.count - 1));
+    self.photoShownFor = 0;
+    [self loadPhotosNear:self.photoIndex];
+    [self noteTouched];
+}
+
+- (void)tearDownPhotos
+{
+    [self stopPhotoTimer];
+    [self.photoPager removeFromSuperview];
+    [self.photoDots removeFromSuperview];
+    self.photoPager.delegate = nil;
+    self.photoPager = nil;
+    self.photoDots = nil;
+    self.photoViews = nil;
+    self.photoIndex = 0;
+    self.photoShownFor = 0;
+}
+
+- (void)teardownPlayer
+{
+    [self releasePlayer];
+    [self stopPhotoTimer];
     self.playing = NO;
     self.playedSeconds = 0;
     self.watchedSeconds = 0;
@@ -695,6 +848,7 @@ static FourCharCode TKFourCC(const char *s)
 - (void)teardown
 {
     [self teardownPlayer];
+    [self tearDownPhotos];
     [self.coverView setImageURL:nil placeholder:nil];
     [self.avatarImage setImageURL:nil placeholder:nil];
     self.video = nil;
@@ -703,6 +857,7 @@ static FourCharCode TKFourCC(const char *s)
 - (void)dealloc
 {
     [self teardownPlayer];
+    self.photoPager.delegate = nil;
 }
 
 @end

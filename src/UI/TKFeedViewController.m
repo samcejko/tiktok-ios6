@@ -55,6 +55,8 @@ static const NSInteger TKAutoAdvancesMax = 5;
 @property (nonatomic, weak) UIActionSheet *videoMenu;     // that menu while it is up
 @property (nonatomic) NSInteger autoAdvanceStreak;        // moves on by itself since the viewer last did anything
 @property (nonatomic) BOOL autoAdvancing;                 // the page change under way is one of those
+@property (nonatomic, strong) UINavigationController *panelNav;   // landscape iPad: comments beside the feed
+@property (nonatomic, strong) TKCommentsViewController *panel;
 @end
 
 @implementation TKFeedViewController
@@ -152,11 +154,36 @@ static const NSInteger TKAutoAdvancesMax = 5;
 
 - (void)dealloc { [[NSNotificationCenter defaultCenter] removeObserver:self]; }
 
+// A landscape iPad shows the comments of the page on screen in a panel beside the feed
+- (BOOL)wantsPanel { return TKIsPad() && self.view.bounds.size.width > self.view.bounds.size.height; }
+
+- (void)ensurePanel
+{
+    if (self.panel) return;
+    self.panel = [[TKCommentsViewController alloc] initAsPanel];
+    self.panelNav = [[UINavigationController alloc] initWithRootViewController:self.panel];
+    [[TKTheme shared] applyToNavigationBar:self.panelNav.navigationBar];
+    [self addChildViewController:self.panelNav];
+    [self.view addSubview:self.panelNav.view];
+    [self.panelNav didMoveToParentViewController:self];
+}
+
 - (void)viewDidLayoutSubviews
 {
     [super viewDidLayoutSubviews];
-    CGSize s = self.view.bounds.size;
-    self.scroll.frame = self.view.bounds;
+    CGRect all = self.view.bounds;
+    CGRect pager = all;
+    if ([self wantsPanel]) {
+        pager.size.width = floorf(all.size.width * 0.58f);
+        [self ensurePanel];
+        self.panelNav.view.frame = CGRectMake(CGRectGetMaxX(pager), 20, all.size.width - pager.size.width, all.size.height - 20);
+        self.panelNav.view.hidden = NO;
+        [self.panel showVideo:[self videoAt:self.currentIndex]];
+    } else {
+        self.panelNav.view.hidden = YES;
+    }
+    self.scroll.frame = pager;
+    CGSize s = pager.size;
     self.scroll.contentSize = CGSizeMake(s.width, s.height * MAX(1, [self count]));
     for (NSNumber *k in self.cells) {
         TKVideoCell *cell = self.cells[k];
@@ -171,12 +198,11 @@ static const NSInteger TKAutoAdvancesMax = 5;
 }
 
 - (BOOL)prefersStatusBarHidden { return YES; }
-// Both portrait orientations on the iPad (it is often held or docked the other way up; Info.plist allows both):
-// locked to one, the app showed upside down while its menus and the status bar followed the device.
+// Every orientation on the iPad (on its side the comments sit beside the video); a phone stays upright
 - (BOOL)shouldAutorotate { return YES; }
 - (NSUInteger)supportedInterfaceOrientations
 {
-    return TKIsPad() ? (UIInterfaceOrientationMaskPortrait | UIInterfaceOrientationMaskPortraitUpsideDown) : UIInterfaceOrientationMaskPortrait;
+    return TKIsPad() ? UIInterfaceOrientationMaskAll : UIInterfaceOrientationMaskPortrait;
 }
 
 - (void)viewDidAppear:(BOOL)animated
@@ -264,7 +290,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
     if (index < 0 || index >= [self count]) return nil;
     TKVideoCell *cell = self.cells[@(index)];
     if (cell) return cell;
-    CGSize s = self.view.bounds.size;
+    CGSize s = self.scroll.bounds.size;
     cell = [[TKVideoCell alloc] initWithFrame:CGRectMake(0, s.height * index, s.width, s.height)];
     cell.delegate = self;
     [cell showVideo:[self videoAt:index]];
@@ -295,6 +321,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
     for (NSNumber *k in self.cells) [self.cells[k] setActive:(k.integerValue == index)];
     [self prepareIndex:index play:YES];
     [self prepareIndex:index + 1 play:NO];   // buffer the next one, so the swipe starts at once
+    if (self.panel && !self.panelNav.view.hidden) [self.panel showVideo:[self videoAt:index]];
 }
 
 // resolve the direct URL if needed, then play (or prepare: buffer without a picture)
@@ -303,13 +330,13 @@ static const NSInteger TKAutoAdvancesMax = 5;
     TKVideo *video = [self videoAt:index];
     TKVideoCell *cell = [self cellAt:index];
     if (!video || !cell) return;
-    if (video.playURL.length) {
+    if (video.playable) {
         if (play || index == self.currentIndex) [cell startPlaybackMuted:self.muted];
         else [cell preparePlayback];
         return;
     }
     [TKTikTok resolveVideo:video completion:^(TKVideo *resolved, NSError *error) {
-        if (error || !resolved.playURL.length) {
+        if (error || !resolved.playable) {
             if (index == self.currentIndex) [cell showError:error.localizedDescription ?: L(@"This video could not be loaded.")];
             return;
         }
@@ -330,7 +357,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
 
 - (void)pageSettled
 {
-    CGFloat h = self.view.bounds.size.height;
+    CGFloat h = self.scroll.bounds.size.height;
     NSInteger page = h > 0 ? (NSInteger)(self.scroll.contentOffset.y / h + 0.5) : 0;
     if (page < 0) page = 0;
     if (page >= [self count]) page = [self count] - 1;
@@ -366,7 +393,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
 - (void)advance
 {
     NSInteger next = self.currentIndex + 1;
-    if (next < [self count]) [self.scroll setContentOffset:CGPointMake(0, self.view.bounds.size.height * next) animated:YES];
+    if (next < [self count]) [self.scroll setContentOffset:CGPointMake(0, self.scroll.bounds.size.height * next) animated:YES];
 }
 
 #pragma mark - Cell delegate
@@ -409,6 +436,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
     if (!self.fixedMode) [self.feed noteEngaged:cell.video weight:0.4];
     // in a navigation controller like the other sheets: its bar carries the title and the Done button
     // (presented bare, the sheet had no way to close)
+    if (self.panel && !self.panelNav.view.hidden) return;   // (landscape: they are already beside the video)
     [self present:[[TKCommentsViewController alloc] initWithVideo:cell.video]];
 }
 
