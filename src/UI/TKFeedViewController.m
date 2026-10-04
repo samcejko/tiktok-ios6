@@ -316,9 +316,9 @@
 
 - (void)videoCellDidTapComments:(TKVideoCell *)cell
 {
-    TKCommentsViewController *c = [[TKCommentsViewController alloc] initWithVideo:cell.video];
-    if (TKIsPad()) c.modalPresentationStyle = UIModalPresentationFormSheet;
-    [self presentViewController:c animated:YES completion:nil];
+    // in a navigation controller like the other sheets: its bar carries the title and the Done button
+    // (presented bare, the sheet had no way to close)
+    [self present:[[TKCommentsViewController alloc] initWithVideo:cell.video]];
 }
 
 - (void)videoCellDidTapShare:(TKVideoCell *)cell
