@@ -67,7 +67,8 @@ static FourCharCode TKFourCC(const char *s)
 @property (nonatomic, strong) UIPageControl *photoDots;
 @property (nonatomic, strong) NSTimer *photoTimer;
 @property (nonatomic) NSTimeInterval photoShownFor;            // how long the current picture has been up
-@property (nonatomic) NSInteger photoIndex;
+@property (nonatomic) NSInteger photoIndex;                    // the picture shown: the pager always follows this
+@property (nonatomic) BOOL photoAnimating;
 @end
 
 @implementation TKVideoCell
@@ -236,7 +237,7 @@ static FourCharCode TKFourCC(const char *s)
         self.photoPager.frame = b;
         self.photoPager.contentSize = CGSizeMake(b.size.width * self.photoViews.count, b.size.height);
         for (NSUInteger i = 0; i < self.photoViews.count; i++) [self.photoViews[i] setFrame:CGRectMake(b.size.width * i, 0, b.size.width, b.size.height)];
-        self.photoPager.contentOffset = CGPointMake(b.size.width * self.photoIndex, 0);
+        if (!self.photoAnimating) [self snapPhotoPager];
         self.photoDots.frame = CGRectMake(0, 62, b.size.width, 20);
     }
     self.scrubZone.frame = CGRectMake(0, b.size.height - TKScrubZoneHeight, b.size.width, TKScrubZoneHeight);
@@ -775,7 +776,26 @@ static FourCharCode TKFourCC(const char *s)
     self.photoIndex = index;
     self.photoShownFor = 0;
     [self loadPhotosNear:index];
-    [self.photoPager setContentOffset:CGPointMake(index * self.photoPager.bounds.size.width, 0) animated:animated];
+    CGPoint target = CGPointMake(index * self.photoPager.bounds.size.width, 0);
+    self.photoAnimating = animated && !CGPointEqualToPoint(self.photoPager.contentOffset, target);
+    [self.photoPager setContentOffset:target animated:self.photoAnimating];
+}
+
+// The pager shows exactly the picture photoIndex names: a paging scroll view drifted by a page or two around a
+// rotation, onto pictures not loaded (a black page)
+- (void)snapPhotoPager
+{
+    CGFloat w = self.photoPager.bounds.size.width;
+    if (w <= 0) return;
+    CGPoint want = CGPointMake(w * self.photoIndex, 0);
+    if (!CGPointEqualToPoint(self.photoPager.contentOffset, want)) self.photoPager.contentOffset = want;
+}
+
+- (void)scrollViewDidEndScrollingAnimation:(UIScrollView *)scrollView
+{
+    if (scrollView != self.photoPager) return;
+    self.photoAnimating = NO;
+    [self snapPhotoPager];
 }
 
 - (void)startPhotoTimer
@@ -794,6 +814,8 @@ static FourCharCode TKFourCC(const char *s)
 {
     if (!self.playing || !self.photoViews.count) return;      // (paused with a tap)
     self.watchedSeconds += 0.5;
+    if (self.photoPager.isDragging || self.photoPager.isDecelerating) return;   // (the viewer is turning the pages)
+    if (!self.photoAnimating) [self snapPhotoPager];
     self.photoShownFor += 0.5;
     CGFloat w = self.bounds.size.width * (CGFloat)((self.photoIndex + MIN(1.0, self.photoShownFor / TKPhotoSeconds)) / self.photoViews.count);
     self.progressBar.frame = CGRectMake(0, self.bounds.size.height - 2, w, 2);
@@ -841,6 +863,7 @@ static FourCharCode TKFourCC(const char *s)
     self.photoViews = nil;
     self.photoIndex = 0;
     self.photoShownFor = 0;
+    self.photoAnimating = NO;
 }
 
 - (void)teardownPlayer
