@@ -84,7 +84,7 @@ static BOOL TKPressView(UIView *v, NSString *text)
 
 // tikie:open?url=<a TikTok link> (how Surfari hands links over), tikie:play/<id>, tikie:user/<handle>,
 // tikie:live/<room>, tikie:server?url=&key=, and plain tiktok.com links. Debug commands (need Documents/debug):
-// snapshot, screen, press?title=/n=, back, stats, swipe[?dir=down], saved[?clear=1], taste[?reset=1],
+// snapshot, screen, press?title=/n=/item=, back, stats, swipe[?dir=down], saved[?clear=1], taste[?reset=1],
 // gesture?type=double|hold|scrub[&f=]|pos.
 - (BOOL)application:(UIApplication *)application openURL:(NSURL *)url sourceApplication:(NSString *)sourceApplication annotation:(id)annotation
 {
@@ -147,6 +147,8 @@ static BOOL TKPressView(UIView *v, NSString *text)
     if ([target isEqualToString:@"press"]) {
         NSString *byTitle = params[@"title"];
         NSInteger n = [params[@"n"] integerValue];
+        BOOL gridItem = params[@"item"] != nil;   // press?item=N: the Nth post of a grid (a profile)
+        if (gridItem) n = [params[@"item"] integerValue];
         // the screen on top first: a covered screen underneath can have a button with the same label
         NSMutableArray *views = [NSMutableArray array];
         UIView *topView = top.navigationController.view ?: top.view;
@@ -155,7 +157,16 @@ static BOOL TKPressView(UIView *v, NSString *text)
         BOOL pressed = NO;
         for (NSUInteger i = 0; i < views.count && !pressed; i++) {
             UIView *v = views[i];
-            if (!byTitle.length && [v isKindOfClass:[UIActionSheet class]] && ((UIActionSheet *)v).visible) {
+            if (gridItem && [v isKindOfClass:[UICollectionView class]]) {
+                UICollectionView *grid = (UICollectionView *)v;
+                NSIndexPath *ip = [NSIndexPath indexPathForItem:n inSection:0];
+                if (grid.numberOfSections > 0 && n < [grid numberOfItemsInSection:0] && [grid.delegate respondsToSelector:@selector(collectionView:didSelectItemAtIndexPath:)]) {
+                    [grid.delegate collectionView:grid didSelectItemAtIndexPath:ip];
+                    pressed = YES;
+                }
+            } else if (gridItem) {
+                [views addObjectsFromArray:v.subviews];
+            } else if (!byTitle.length && [v isKindOfClass:[UIActionSheet class]] && ((UIActionSheet *)v).visible) {
                 UIActionSheet *sheet = (UIActionSheet *)v;
                 if ([sheet.delegate respondsToSelector:@selector(actionSheet:clickedButtonAtIndex:)]) [sheet.delegate actionSheet:sheet clickedButtonAtIndex:n];
                 [sheet dismissWithClickedButtonIndex:n animated:NO];

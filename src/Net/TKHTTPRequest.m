@@ -523,7 +523,7 @@ static dispatch_semaphore_t TKConnectionSlots(void)
             }
             // The body ends with the connection (also for incomplete chunked / content-length bodies).
             [self consumeBody:buffer];
-            if (self.chunked || self.contentLength >= 0) {
+            if ((self.chunked || self.contentLength >= 0) && !self.isCancelled) {
                 TKLog(@"HTTP body ended early (chunked=%d, received=%lld) for %@", self.chunked, self.bodyReceived, self.url);
             }
             self.connectionClose = YES;

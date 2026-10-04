@@ -136,7 +136,10 @@
     for (id item in TKArr(TKDict(json)[@"items"])) {
         TKVideo *v = [TKVideo videoFromJSON:TKDict(item)];
         if (!v) continue;
+        // (the profile's list names the author only by handle: the picture and the live room come from the profile)
         if (!v.author.length) v.author = p.handle;
+        if (!v.authorAvatarURL.length) v.authorAvatarURL = p.avatarURL;
+        if (!v.authorLiveRoom.length) v.authorLiveRoom = p.liveRoom;
         [videos addObject:v];
     }
     p.videos = videos;
