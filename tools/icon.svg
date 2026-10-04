@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Tikie icon: a glossy dark tile with a play/note mark in TikTok-ish pink and cyan (evokes short video without
+     copying any logo). 160-unit viewBox; iOS rounds it (we also bake rounding in gen_assets); gloss is ours. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2a2e"/>
+      <stop offset="0.55" stop-color="#121214"/>
+      <stop offset="1" stop-color="#050506"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.04"/>
+    </linearGradient>
+    <filter id="cyan" x="-30%" y="-30%" width="160%" height="160%">
+      <feOffset dx="-4" dy="2" result="o"/>
+      <feFlood flood-color="#25f4ee"/>
+      <feComposite in2="o" operator="in"/>
+      <feComposite in2="SourceGraphic" operator="over"/>
+    </filter>
+  </defs>
+  <rect width="160" height="160" fill="url(#bg)"/>
+  <!-- cyan ghost offset behind, then the pink play triangle on top -->
+  <path d="M60 46 L116 80 L60 114 Z" fill="#25f4ee" transform="translate(-5,3)" opacity="0.9"/>
+  <path d="M60 46 L116 80 L60 114 Z" fill="#fe2c55"/>
+  <path d="M60 46 L116 80 L60 114 Z" fill="none" stroke="#ffe3ec" stroke-opacity="0.5" stroke-width="1.5"/>
+  <path d="M0 0 H160 V58 C120 86 40 86 0 58 Z" fill="url(#gloss)"/>
+</svg>

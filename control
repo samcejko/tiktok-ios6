@@ -1,0 +1,9 @@
+Package: com.samcejko.tikie
+Name: Tikie
+Version: 0.1.0
+Architecture: iphoneos-arm
+Description: Unofficial TikTok viewer for iOS 6 (universal): a vertical feed of public videos from creators you follow, your own local ranking, saved videos and comments. Needs the tikie helper on your own server.
+Maintainer: samcejko
+Author: samcejko
+Section: Multimedia
+Depends: firmware (>= 6.0)
