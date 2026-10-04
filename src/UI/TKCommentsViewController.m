@@ -12,6 +12,22 @@
 @property (nonatomic, copy) NSString *status;
 @end
 
+// A comment shows at most this many lines (some are walls of emoji that would fill the whole sheet)
+static const NSInteger TKCommentMaxLines = 8;
+
+// Rows are measured with a label set up exactly like the cell's, so the height matches what gets drawn
+// (emoji lines are taller than the body font's).
+static UILabel *TKCommentSizingLabel(void)
+{
+    static UILabel *label;
+    if (!label) {
+        label = [[UILabel alloc] initWithFrame:CGRectZero];
+        label.numberOfLines = TKCommentMaxLines;
+        label.lineBreakMode = NSLineBreakByTruncatingTail;
+    }
+    return label;
+}
+
 @implementation TKCommentsViewController
 
 - (instancetype)initWithVideo:(TKVideo *)video
@@ -62,7 +78,8 @@
     cell.textLabel.font = [[TKTheme shared] tinyBoldFont];
     cell.textLabel.textColor = [[TKTheme shared] secondaryTextColor];
     cell.detailTextLabel.text = [TKUtils displayText:c.text];
-    cell.detailTextLabel.numberOfLines = 0;
+    cell.detailTextLabel.numberOfLines = TKCommentMaxLines;
+    cell.detailTextLabel.lineBreakMode = NSLineBreakByTruncatingTail;
     cell.detailTextLabel.font = [[TKTheme shared] bodyFont];
     cell.detailTextLabel.textColor = [[TKTheme shared] primaryTextColor];
     return cell;
@@ -72,8 +89,11 @@
 {
     if (!self.comments.count) return 80;
     TKComment *c = self.comments[(NSUInteger)ip.row];
-    CGSize s = [[TKUtils displayText:c.text] sizeWithFont:[[TKTheme shared] bodyFont] constrainedToSize:CGSizeMake(t.bounds.size.width - 24, 400) lineBreakMode:NSLineBreakByWordWrapping];
-    return MAX(52, s.height + 34);
+    UILabel *sizer = TKCommentSizingLabel();
+    sizer.font = [[TKTheme shared] bodyFont];
+    sizer.text = [TKUtils displayText:c.text];
+    CGSize s = [sizer sizeThatFits:CGSizeMake(t.bounds.size.width - 24, CGFLOAT_MAX)];
+    return MAX(52, ceilf(s.height) + 34);
 }
 
 @end
