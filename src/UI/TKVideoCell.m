@@ -274,7 +274,7 @@ static void *TKItemStatusCtx = &TKItemStatusCtx;
 
 - (void)setActive:(BOOL)active
 {
-    self.active = active;
+    _active = active;
     if (active) {
         if (self.player) { [self.player play]; self.playing = YES; }
     } else {
