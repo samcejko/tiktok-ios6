@@ -10,7 +10,7 @@
 		<string>cs</string>
 	</array>
 	<key>CFBundleDisplayName</key>
-	<string>Tikie</string>
+	<string>TikTak</string>
 	<key>CFBundleExecutable</key>
 	<string>Tikie</string>
 	<key>CFBundleIdentifier</key>
@@ -18,7 +18,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Tikie</string>
+	<string>TikTak</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleSignature</key>
@@ -104,6 +104,7 @@
 			<string>com.samcejko.tikie</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
+				<string>tiktak</string>
 				<string>tikie</string>
 			</array>
 		</dict>

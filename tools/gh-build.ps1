@@ -128,9 +128,9 @@ if ($run.conclusion -ne 'success') {
 if (-not $Download -and -not $Install) { exit 0 }
 
 $arts = Invoke-GH GET "/actions/runs/$($run.id)/artifacts"
-$pkg = $arts.artifacts | Where-Object { $_.name -eq 'Tikie-packages' } | Select-Object -First 1
-if (-not $pkg) { throw "No Tikie-packages artifact" }
-$zip = Join-Path $OutDir "Tikie-packages-$($run.id).zip"
+$pkg = $arts.artifacts | Where-Object { $_.name -in @('TikTak-packages', 'Tikie-packages') } | Select-Object -First 1   # (runs from before the rename: Tikie-packages)
+if (-not $pkg) { throw "No TikTak-packages artifact" }
+$zip = Join-Path $OutDir "TikTak-packages-$($run.id).zip"
 Download-GH "$Api/actions/artifacts/$($pkg.id)/zip" $zip
 $extract = Join-Path $OutDir "run-$($run.id)"
 if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }

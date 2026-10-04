@@ -1,4 +1,4 @@
-name: Build Tikie (iOS 6, armv7)
+name: Build TikTak (iOS 6, armv7)
 
 on:
   push:
@@ -98,7 +98,7 @@ jobs:
         run: |
           set -e
           rm -rf Resources/licenses && mkdir -p Resources/licenses
-          cp LICENSE Resources/licenses/Tikie-LICENSE.txt
+          cp LICENSE Resources/licenses/TikTak-LICENSE.txt
           cp THIRD-PARTY-NOTICES.md Resources/licenses/THIRD-PARTY-NOTICES.txt
           cp vendor/mbedtls/LICENSE Resources/licenses/mbedtls-LICENSE.txt
           ls -la Resources/licenses
@@ -183,13 +183,14 @@ jobs:
           VERSION=$(grep '^Version:' control | cut -d' ' -f2)
           rm -rf /tmp/ipa && mkdir -p /tmp/ipa/Payload packages
           cp -a "$APP" /tmp/ipa/Payload/
-          (cd /tmp/ipa && zip -qr9 "$GITHUB_WORKSPACE/packages/Tikie-$VERSION.ipa" Payload)
+          # (the bundle inside keeps the app's first name, Tikie.app; the file is named as the app is shown)
+          (cd /tmp/ipa && zip -qr9 "$GITHUB_WORKSPACE/packages/TikTak-$VERSION.ipa" Payload)
           ls -la packages/
 
       - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
-          name: Tikie-packages
+          name: TikTak-packages
           path: |
             packages/*.ipa
             packages/*.deb

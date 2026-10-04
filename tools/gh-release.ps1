@@ -36,7 +36,7 @@ $section = ''
 if ($changelog -match "(?s)## $([regex]::Escape($Version))[^\n]*\n(.*?)(\n## |\z)") { $section = $Matches[1].Trim() }
 # (ASCII only in this file: Windows PowerShell 5.1 reads a BOM-less script in the ANSI code page)
 $sums = $assets | ForEach-Object { "- ``$($_.Name)`` - SHA-256 ``$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())``" }
-$install = '**Installation (jailbroken iOS 6):** the IPA through `ipainstaller -f Tikie-{0}.ipa` (AppSync Unified), or the DEB through `dpkg -i` followed by `su mobile -c uicache`. Either works; do not keep both installed at once. You also need the `tikie` helper running on your own server (see the repo''s pi/ folder) and its address set in the app''s Settings.' -f $Version
+$install = '**Installation (jailbroken iOS 6):** the IPA through `ipainstaller -f TikTak-{0}.ipa` (AppSync Unified), or the DEB through `dpkg -i` followed by `su mobile -c uicache`. Either works; do not keep both installed at once. You also need the helper (the `tikie` service) running on your own server (see the repo''s pi/ folder) and its address set in the app''s Settings.' -f $Version
 $notes = ($section, '', $install, '', '**Checksums**', ($sums -join "`n")) -join "`n"
 
 Write-Host "Release $tag of $Repo at $($Sha.Substring(0, [Math]::Min(7, $Sha.Length)))"
@@ -44,18 +44,18 @@ Write-Host "Assets: $(($assets | ForEach-Object { $_.Name }) -join ', ')"
 Write-Host "--- notes ---`n$notes`n-------------"
 if ($DryRun) { Write-Host 'Dry run: nothing published.'; exit 0 }
 
-$headers = @{ Authorization = "Bearer $Token"; Accept = 'application/vnd.github+json'; 'User-Agent' = 'Tikie-tools'; 'X-GitHub-Api-Version' = '2022-11-28' }
+$headers = @{ Authorization = "Bearer $Token"; Accept = 'application/vnd.github+json'; 'User-Agent' = 'TikTak-tools'; 'X-GitHub-Api-Version' = '2022-11-28' }
 $api = "https://api.github.com/repos/$Repo"
 
 # an existing release of this tag is reused (assets of the same name are replaced)
 $release = $null
 try { $release = Invoke-RestMethod -Uri "$api/releases/tags/$tag" -Headers $headers -TimeoutSec 60 } catch { $release = $null }
 if (-not $release) {
-    $body = @{ tag_name = $tag; target_commitish = $Sha; name = "Tikie $Version"; body = $notes; draft = $false; prerelease = $false } | ConvertTo-Json
+    $body = @{ tag_name = $tag; target_commitish = $Sha; name = "TikTak $Version"; body = $notes; draft = $false; prerelease = $false } | ConvertTo-Json
     $release = Invoke-RestMethod -Method Post -Uri "$api/releases" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 60
     Write-Host "Created release $($release.id)"
 } else {
-    $body = @{ body = $notes; name = "Tikie $Version" } | ConvertTo-Json
+    $body = @{ body = $notes; name = "TikTak $Version" } | ConvertTo-Json
     $release = Invoke-RestMethod -Method Patch -Uri "$api/releases/$($release.id)" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 60
     Write-Host "Updated release $($release.id)"
 }

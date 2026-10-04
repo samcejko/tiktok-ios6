@@ -60,8 +60,8 @@ enum { SecServer, SecFeed, SecPlayback, SecAppearance, SecNetwork, SecData, SecA
 
 - (NSString *)tableView:(UITableView *)t titleForFooterInSection:(NSInteger)s
 {
-    if (s == SecServer) return L(@"The helper (tikie) runs on your Pi and finds the videos. Enter its address, e.g. https://ytdlp.samcejko.eu. 'Stream through the server' routes the video through the Pi too - slower, but needed away from home.");
-    if (s == SecAbout) return L(@"Tikie is an unofficial viewer of public TikTok content. No login, no posting. Not affiliated with TikTok.");
+    if (s == SecServer) return L(@"The helper on your Pi finds the videos. Enter its address, e.g. https://ytdlp.samcejko.eu. 'Stream through the server' routes the video through the Pi too - slower, but needed away from home.");
+    if (s == SecAbout) return L(@"TikTak is an unofficial viewer of public TikTok content. No login, no posting. Not affiliated with TikTok or ByteDance.");
     return nil;
 }
 

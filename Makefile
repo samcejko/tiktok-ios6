@@ -1,4 +1,5 @@
-# Tikie - unofficial TikTok viewer for jailbroken iOS 6.x (armv7) with its own TLS stack.
+# TikTak - unofficial TikTok viewer for jailbroken iOS 6.x (armv7) with its own TLS stack. Its first name, Tikie,
+# stays inside: the bundle (Tikie.app), the executable, the bundle id, the log prefix and the tikie: scheme.
 # Built with Theos. Deployment target iOS 6.0, compiled against the iOS 9.3 SDK.
 
 TARGET := iphone:clang:9.3:6.0

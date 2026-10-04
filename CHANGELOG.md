@@ -2,7 +2,7 @@
 
 ## 0.1.0 (2026-10-04)
 
-First version.
+First version, in English and Czech. Named TikTak (it was Tikie while it was being built).
 
 - A vertical, full-screen "For You" feed: videos from all of TikTok's Explore topics, picked by a taste the app
   learns on the device (watch time, saves, "Not interested"; it keeps trying new topics). No following, no preset
@@ -14,7 +14,7 @@ First version.
 - Landscape iPad: the comments sit beside the video
 - TikTok LIVE: a list of live creators, the LIVE badge on a creator's picture, their profile and live links; the FLV
   stream is repacked on the device into HLS (and pulled again whenever TikTok's CDN ends it)
-- Links: `tikie:open?url=`, "Open a link"; Surfari offers TikTok links to Tikie
+- Links: `tiktak:open?url=` (also `tikie:`), "Open a link"; Surfari offers TikTok links to TikTak
 - Save videos for yourself
 - Video streams straight from TikTok's CDN through the app's own TLS layer; the Pi helper only finds the videos
-- Needs the `tikie` helper (yt-dlp) on your own server; set its address and key in Settings
+- Needs its helper (the `tikie` service, yt-dlp) on your own server; set its address and key in Settings

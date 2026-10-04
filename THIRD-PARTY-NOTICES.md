@@ -1,6 +1,6 @@
 # Third-party notices
 
-Tikie is an independent, unofficial viewer of public TikTok content. It is not affiliated with, endorsed by or
+TikTak (first called Tikie) is an independent, unofficial viewer of public TikTok content. It is not affiliated with, endorsed by or
 associated with TikTok or ByteDance. TikTok is a trademark of ByteDance. The app reads public videos through a
 helper you run on your own server; using an unofficial client may be against TikTok's terms of service, which is
 the user's call. No login, no posting, no access to private content.

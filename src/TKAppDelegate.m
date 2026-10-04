@@ -82,17 +82,18 @@ static BOOL TKPressView(UIView *v, NSString *text)
     return top;
 }
 
-// tikie:open?url=<a TikTok link> (how Surfari hands links over), tikie:play/<id>, tikie:user/<handle>,
-// tikie:live/<room>, tikie:server?url=&key=, and plain tiktok.com links. Debug commands (need Documents/debug):
-// snapshot, screen, press?title=/n=/item=, back, stats, swipe[?dir=down], saved[?clear=1], taste[?reset=1],
-// gesture?type=double|hold|scrub[&f=]|pos.
+// tiktak:open?url=<a TikTok link> (how Surfari hands links over), tiktak:play/<id>, tiktak:user/<handle>,
+// tiktak:live/<room>, tiktak:server?url=&key=, and plain tiktok.com links; tikie: (the app's first name) works the
+// same. Debug commands (need Documents/debug): snapshot, screen, press?title=/n=/item=, back, stats,
+// swipe[?dir=down], saved[?clear=1], taste[?reset=1], gesture?type=double|hold|scrub[&f=]|pos.
 - (BOOL)application:(UIApplication *)application openURL:(NSURL *)url sourceApplication:(NSString *)sourceApplication annotation:(id)annotation
 {
     NSString *s = url.absoluteString ?: @"";
     NSString *lower = [s lowercaseString];
     if ([lower hasPrefix:@"http://"] || [lower hasPrefix:@"https://"]) return [TKLinkRouter openLink:s];
-    if (![lower hasPrefix:@"tikie:"]) return NO;
-    NSString *target = [s substringFromIndex:@"tikie:".length];
+    NSString *scheme = [lower hasPrefix:@"tiktak:"] ? @"tiktak:" : [lower hasPrefix:@"tikie:"] ? @"tikie:" : nil;
+    if (!scheme) return NO;
+    NSString *target = [s substringFromIndex:scheme.length];
     while ([target hasPrefix:@"/"]) target = [target substringFromIndex:1];
     NSString *query = nil;
     NSRange q = [target rangeOfString:@"?"];

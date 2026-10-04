@@ -1,4 +1,4 @@
-/* Tikie - čeština */
+/* TikTak - čeština */
 
 "%@ viewers" = "%@ diváků";
 "%ld days ago" = "před %ld dny";
@@ -79,7 +79,7 @@
 "Tap the star on a video to keep it here." = "Klepni na hvězdičku u videa a uloží se sem.";
 "Test connection" = "Otestovat připojení";
 "The certificate bundle is missing, cannot verify the server." = "Chybí balík certifikátů, server nelze ověřit.";
-"The helper (tikie) runs on your Pi and finds the videos. Enter its address, e.g. https://ytdlp.samcejko.eu. 'Stream through the server' routes the video through the Pi too - slower, but needed away from home." = "Pomocník (tikie) běží na tvém Pi a hledá videa. Zadej jeho adresu, např. https://ytdlp.samcejko.eu. „Streamovat přes server\" pustí přes Pi i samotné video — pomalejší, ale potřeba mimo domov.";
+"The helper on your Pi finds the videos. Enter its address, e.g. https://ytdlp.samcejko.eu. 'Stream through the server' routes the video through the Pi too - slower, but needed away from home." = "Pomocník na tvém Pi hledá videa. Zadej jeho adresu, např. https://ytdlp.samcejko.eu. „Streamovat přes server\" pustí přes Pi i samotné video — pomalejší, ale potřeba mimo domov.";
 "The key you set on the Pi (leave empty for none)." = "Klíč, který jsi nastavil na Pi (prázdné = žádný).";
 "The player could not start." = "Přehrávač se nepodařilo spustit.";
 "The server answered but is not healthy." = "Server odpověděl, ale není v pořádku.";
@@ -93,7 +93,7 @@
 "This video could not be played." = "Toto video nelze přehrát.";
 " (key set)" = " (klíč nastaven)";
 "This video is in HEVC, which this device cannot show. You hear the sound only." = "Toto video je ve formátu HEVC, který tohle zařízení neumí zobrazit. Hraje jen zvuk.";
-"Tikie is an unofficial viewer of public TikTok content. No login, no posting. Not affiliated with TikTok." = "Tikie je neoficiální prohlížeč veřejného obsahu z TikToku. Bez přihlášení, bez přispívání. Není spjato s TikTokem.";
+"TikTak is an unofficial viewer of public TikTok content. No login, no posting. Not affiliated with TikTok or ByteDance." = "TikTak je neoficiální prohlížeč veřejného obsahu z TikToku. Bez přihlášení, bez přispívání. Nemá nic společného s TikTokem ani s ByteDance.";
 "TLS handshake failed: %@" = "Navázání TLS selhalo: %@";
 "TLS handshake timed out." = "Navázání TLS vypršelo.";
 "Try again" = "Zkusit znovu";
