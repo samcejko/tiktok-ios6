@@ -27,6 +27,7 @@
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic) BOOL muted;
 @property (nonatomic) BOOL appeared;
+@property (nonatomic) BOOL visible;        // on screen (not covered by a full-screen controller)
 @end
 
 @implementation TKFeedViewController
@@ -146,6 +147,7 @@
 - (void)viewDidAppear:(BOOL)animated
 {
     [super viewDidAppear:animated];
+    self.visible = YES;
     if (self.appeared) { [self setActiveIndex:self.currentIndex]; return; }
     self.appeared = YES;
     if (self.fixedMode) {
@@ -160,6 +162,7 @@
 - (void)viewWillDisappear:(BOOL)animated
 {
     [super viewWillDisappear:animated];
+    self.visible = NO;
     [[self cellAt:self.currentIndex] setActive:NO];
 }
 
@@ -186,7 +189,9 @@
         self.currentIndex = 0;
         [self.view setNeedsLayout];
         [self refreshWindow];
-        [self setActiveIndex:0];
+        // A video link opened while the feed was loading covers it: playing now would sound under that video.
+        // viewDidAppear starts the page once the feed is on screen again.
+        if (self.visible) [self setActiveIndex:0];
     }];
 }
 
