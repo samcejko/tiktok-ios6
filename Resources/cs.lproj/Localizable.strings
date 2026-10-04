@@ -91,6 +91,8 @@
 "The server stopped responding (timeout)." = "Server přestal odpovídat (timeout).";
 "This video could not be loaded." = "Toto video se nepodařilo načíst.";
 "This video could not be played." = "Toto video nelze přehrát.";
+" (key set)" = " (klíč nastaven)";
+"This video is in HEVC, which this device cannot show. You hear the sound only." = "Toto video je ve formátu HEVC, který tohle zařízení neumí zobrazit. Hraje jen zvuk.";
 "Tikie is an unofficial viewer of public TikTok content. No login, no posting. Not affiliated with TikTok." = "Tikie je neoficiální prohlížeč veřejného obsahu z TikToku. Bez přihlášení, bez přispívání. Není spjato s TikTokem.";
 "TLS handshake failed: %@" = "Navázání TLS selhalo: %@";
 "TLS handshake timed out." = "Navázání TLS vypršelo.";

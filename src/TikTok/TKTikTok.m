@@ -1,3 +1,4 @@
+#import <UIKit/UIKit.h>
 #import "TKTikTok.h"
 #import "TKHTTP.h"
 #import "TKSettings.h"
@@ -71,10 +72,20 @@
     if (r.commentCount) video.commentCount = r.commentCount;
 }
 
+// What this device can show: H.264 only (iOS 6 has no HEVC decoder) and no taller than its screen in pixels.
+// A server that does not know these parameters ignores them.
++ (NSString *)formatPreference
+{
+    UIScreen *s = [UIScreen mainScreen];
+    CGFloat longSide = MAX(s.bounds.size.width, s.bounds.size.height) * s.scale;
+    return [NSString stringWithFormat:@"vcodec=h264&maxh=%ld", (long)longSide];
+}
+
 + (TKHTTPTask *)resolveVideo:(TKVideo *)video completion:(void (^)(TKVideo *, NSError *))completion
 {
     NSString *q = [NSString stringWithFormat:@"id=%@", [TKUtils urlEncode:video.videoId ?: @""]];
     if (video.author.length) q = [q stringByAppendingFormat:@"&user=%@", [TKUtils urlEncode:video.author]];
+    q = [q stringByAppendingFormat:@"&%@", [self formatPreference]];
     NSString *url = [self urlForPath:@"/resolve" query:q];
     if (!url) { completion(nil, [self notConfigured]); return nil; }
     return [TKHTTP getJSON:url headers:nil completion:^(id json, NSInteger status, NSError *error) {

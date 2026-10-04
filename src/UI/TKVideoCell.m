@@ -7,8 +7,16 @@
 #import "TKUtils.h"
 #import "TKCommon.h"
 #import <AVFoundation/AVFoundation.h>
+#import <CoreMedia/CoreMedia.h>
 
 static void *TKItemStatusCtx = &TKItemStatusCtx;
+
+// The FourCC of a codec name ("avc1", "hvc1", ...), as a video track's format description reports it
+static FourCharCode TKFourCC(const char *s)
+{
+    return ((FourCharCode)(unsigned char)s[0] << 24) | ((FourCharCode)(unsigned char)s[1] << 16) |
+           ((FourCharCode)(unsigned char)s[2] << 8) | (FourCharCode)(unsigned char)s[3];
+}
 
 @interface TKVideoCell ()
 @property (nonatomic, strong) TKVideo *video;
@@ -25,6 +33,7 @@ static void *TKItemStatusCtx = &TKItemStatusCtx;
 @property (nonatomic, strong) UILabel *descLabel;
 @property (nonatomic, strong) UILabel *musicLabel;
 @property (nonatomic, strong) UILabel *errorLabel;
+@property (nonatomic, strong) UILabel *noteLabel;
 @property (nonatomic, strong) UIButton *saveButton;
 @property (nonatomic, strong) UILabel *saveCountLabel;
 @property (nonatomic, strong) UIButton *commentsButton;
@@ -35,6 +44,8 @@ static void *TKItemStatusCtx = &TKItemStatusCtx;
 @property (nonatomic) BOOL wantMuted;
 @property (nonatomic) BOOL usingServerProxy;
 @property (nonatomic) BOOL reachedEndOnce;
+@property (nonatomic) BOOL undecodableVideo;          // the picture uses a codec the device has no decoder for
+@property (nonatomic) NSUInteger proxyGeneration;     // the media proxy's generation the player's URL belongs to
 @end
 
 @implementation TKVideoCell
@@ -72,6 +83,14 @@ static void *TKItemStatusCtx = &TKItemStatusCtx;
         _errorLabel.numberOfLines = 0;
         _errorLabel.textAlignment = NSTextAlignmentCenter;
         _errorLabel.hidden = YES;
+
+        _noteLabel = [self labelBold:NO size:13 color:[UIColor whiteColor]];
+        _noteLabel.numberOfLines = 0;
+        _noteLabel.textAlignment = NSTextAlignmentCenter;
+        _noteLabel.backgroundColor = [UIColor colorWithWhite:0 alpha:0.6];
+        _noteLabel.layer.cornerRadius = 6;
+        _noteLabel.layer.masksToBounds = YES;
+        _noteLabel.hidden = YES;
 
         _saveButton = [self iconButton:[[TKTheme shared] starIconFilled:NO color:[UIColor whiteColor] size:34] action:@selector(tapSave)];
         _saveCountLabel = [self labelBold:YES size:12 color:[UIColor whiteColor]];
@@ -132,6 +151,19 @@ static void *TKItemStatusCtx = &TKItemStatusCtx;
     self.descLabel.frame = CGRectMake(14, b.size.height - 48 - ds.height - 2, textW, ds.height);
     self.authorLabel.frame = CGRectMake(14, CGRectGetMinY(self.descLabel.frame) - 24, textW, 20);
     self.errorLabel.frame = CGRectMake(30, b.size.height / 2 - 40, b.size.width - 60, 80);
+    if (!self.noteLabel.hidden) {
+        CGFloat maxW = MIN(b.size.width - 40, 520);
+        CGSize ns = [self.noteLabel.text sizeWithFont:self.noteLabel.font constrainedToSize:CGSizeMake(maxW - 24, 200) lineBreakMode:NSLineBreakByWordWrapping];
+        CGFloat w = ceilf(ns.width) + 24, h = ceilf(ns.height) + 14;
+        self.noteLabel.frame = CGRectMake(floorf((b.size.width - w) / 2), 70, w, h);   // under the feed's title bar
+    }
+}
+
+- (void)showNote:(NSString *)note
+{
+    self.noteLabel.text = note;
+    self.noteLabel.hidden = (note.length == 0);
+    [self setNeedsLayout];
 }
 
 #pragma mark - Content
@@ -185,6 +217,16 @@ static void *TKItemStatusCtx = &TKItemStatusCtx;
     self.wantMuted = muted;
     if (!self.video.playURL.length) { [self showError:L(@"This video could not be loaded.")]; return; }
     [[TKMediaProxy shared] ensureRunning];
+    NSUInteger generation = [TKMediaProxy shared].generation;
+    // This page already has its player (we came back to it, or the feed re-activated it after a sheet closed):
+    // keep that one. Building another here left the first one playing as well - the sound came twice.
+    if (self.player && self.item.status != AVPlayerItemStatusFailed && self.proxyGeneration == generation) {
+        [self applyVolume];
+        if (self.active && !self.playing) { [self.player play]; self.playing = YES; }
+        return;
+    }
+    [self teardownPlayer];
+    self.proxyGeneration = generation;
     NSDictionary *headers = nil;
     NSString *upstream = [self buildUpstreamAndHeaders:&headers];
     NSString *local = [[TKMediaProxy shared] proxyURLForURL:[NSURL URLWithString:upstream] upstreamHeaders:headers];
@@ -230,7 +272,7 @@ static void *TKItemStatusCtx = &TKItemStatusCtx;
 {
     if (seconds > self.playedSeconds) self.playedSeconds = seconds;
     if (self.item.status == AVPlayerItemStatusReadyToPlay) {
-        self.coverView.hidden = YES;
+        if (!self.undecodableVideo) self.coverView.hidden = YES;
         [self.spinner stopAnimating];
     }
     Float64 dur = CMTimeGetSeconds(self.item.duration);
@@ -245,8 +287,9 @@ static void *TKItemStatusCtx = &TKItemStatusCtx;
     if (context != TKItemStatusCtx) { [super observeValueForKeyPath:keyPath ofObject:object change:change context:context]; return; }
     TKMain(^{
         if (self.item.status == AVPlayerItemStatusReadyToPlay) {
-            self.coverView.hidden = YES;
             [self.spinner stopAnimating];
+            [self checkVideoCodec];
+            if (!self.undecodableVideo) self.coverView.hidden = YES;
             [self applyVolume];
             if (self.active && !self.playing) { [self.player play]; self.playing = YES; }
         } else if (self.item.status == AVPlayerItemStatusFailed) {
@@ -261,6 +304,26 @@ static void *TKItemStatusCtx = &TKItemStatusCtx;
             }
         }
     });
+}
+
+// iOS 6 has no HEVC decoder (that came with iOS 11): such a video plays its sound over a black picture.
+// Spot it, keep the cover up and say why, instead of showing a black page. Every video's codec goes to the log.
+- (void)checkVideoCodec
+{
+    if (self.undecodableVideo) return;
+    NSArray *tracks = [self.item.asset tracksWithMediaType:AVMediaTypeVideo];
+    AVAssetTrack *track = tracks.count ? tracks[0] : nil;
+    if (!track.formatDescriptions.count) return;
+    CMFormatDescriptionRef desc = (__bridge CMFormatDescriptionRef)track.formatDescriptions[0];
+    FourCharCode codec = CMFormatDescriptionGetMediaSubType(desc);
+    char cc[5] = { (char)(codec >> 24), (char)(codec >> 16), (char)(codec >> 8), (char)codec, 0 };
+    TKLog(@"video %@: %s %.0fx%.0f", self.video.videoId, cc, track.naturalSize.width, track.naturalSize.height);
+    if (codec == TKFourCC("hvc1") || codec == TKFourCC("hev1")) {
+        self.undecodableVideo = YES;
+        self.coverView.hidden = NO;
+        self.playerLayer.hidden = YES;
+        [self showNote:L(@"This video is in HEVC, which this device cannot show. You hear the sound only.")];
+    }
 }
 
 - (void)itemDidReachEnd:(NSNotification *)note
@@ -335,6 +398,8 @@ static void *TKItemStatusCtx = &TKItemStatusCtx;
     self.playing = NO;
     self.playedSeconds = 0;
     self.coverView.hidden = NO;
+    self.undecodableVideo = NO;
+    [self showNote:nil];
 }
 
 - (void)teardown
