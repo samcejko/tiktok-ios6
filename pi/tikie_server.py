@@ -131,6 +131,8 @@ def user_list(name, count):
     for e in entries:
         if not e:
             continue
+        if not e.get("formats") and not e.get("duration"):
+            continue   # a photo post (slideshow): no video to play, /resolve would fail on it
         it = item_from_info(e)
         if not it["author"]:
             it["author"] = name
@@ -225,26 +227,45 @@ def resolve(ref, user=None, vcodec="h264", maxh=1280):
     return out
 
 def comments(ref, count):
+    """Top-level comments. yt-dlp no longer extracts TikTok comments, but TikTok's own web endpoint answers
+    without a login or a request signature, 20 per page."""
     vid = video_id(ref)
     if not vid:
         return []
+    count = max(1, min(count, 100))
     ckey = "comments:%s:%d" % (vid, count)
     cached = CACHE.get(ckey)
     if cached is not None:
         return cached
-    url = "https://www.tiktok.com/@_/video/%s" % vid
-    opts = {"noplaylist": True, "getcomments": True,
-            "extractor_args": {"tiktok": {"comment_count": [str(max(1, min(count, 100)))]}}}
     out = []
+    ok = False
+    cursor = 0
     try:
-        with _YDL_LOCK, _ydl(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-        for c in (info.get("comments") or [])[:count]:
-            out.append({"author": c.get("author") or "", "text": c.get("text") or "",
-                        "likes": c.get("like_count") or 0})
+        for _ in range(6):
+            q = urllib.parse.urlencode({"aid": "1988", "aweme_id": vid, "count": 20, "cursor": cursor})
+            req = urllib.request.Request("https://www.tiktok.com/api/comment/list/?" + q,
+                                         headers={"User-Agent": UA, "Referer": "https://www.tiktok.com/"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                data = json.loads(r.read().decode("utf-8", "replace") or "{}")
+            ok = True
+            for c in data.get("comments") or []:
+                text = (c.get("text") or "").strip()
+                if not text:
+                    continue
+                user = c.get("user") or {}
+                out.append({"author": user.get("unique_id") or user.get("nickname") or "",
+                            "authorName": user.get("nickname") or "",
+                            "text": text,
+                            "likes": c.get("digg_count") or 0,
+                            "replies": c.get("reply_comment_total") or 0,
+                            "time": c.get("create_time") or 0})
+            if len(out) >= count or not data.get("has_more"):
+                break
+            cursor = data.get("cursor") or (cursor + 20)
     except Exception as e:
         sys.stderr.write("comments failed for %s: %s\n" % (vid, e))
-    CACHE.put(ckey, out, 600)
+    out = out[:count]
+    CACHE.put(ckey, out, 600 if ok else 60)   # a failure is retried after a minute, not ten
     return out
 
 # --- YouTube (added for the Tubie iOS 6 app; everything above is unchanged) ------

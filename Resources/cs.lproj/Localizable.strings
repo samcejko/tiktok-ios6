@@ -63,6 +63,7 @@
 "Remove every saved video?" = "Odebrat všechna uložená videa?";
 "Request failed (HTTP %ld)." = "Požadavek selhal (HTTP %ld).";
 "Save" = "Uložit";
+"Share" = "Sdílet";
 "Saved" = "Uložené";
 "Sending the request failed." = "Odeslání požadavku selhalo.";
 "Sending the request failed: %@" = "Odeslání požadavku selhalo: %@";

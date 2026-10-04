@@ -99,6 +99,10 @@ static FourCharCode TKFourCC(const char *s)
         _commentsCountLabel = [self labelBold:YES size:12 color:[UIColor whiteColor]];
         _commentsCountLabel.textAlignment = NSTextAlignmentCenter;
         _shareButton = [self iconButton:[[TKTheme shared] skipIconForward:YES] action:@selector(tapShare)];
+        // icon-only buttons: name them for VoiceOver (and the debug "press" command)
+        _saveButton.accessibilityLabel = L(@"Save");
+        _commentsButton.accessibilityLabel = L(@"Comments");
+        _shareButton.accessibilityLabel = L(@"Share");
 
         for (UILabel *l in @[ _authorLabel, _descLabel, _musicLabel, _saveCountLabel, _commentsCountLabel ]) l.layer.shadowOpacity = 0.6, l.layer.shadowRadius = 2, l.layer.shadowOffset = CGSizeMake(0, 1);
 
