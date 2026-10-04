@@ -94,7 +94,8 @@ static BOOL TKPressView(UIView *v, NSString *text)
 }
 
 // tikie:add?u=@handle, tikie:play/<id>, and tiktok.com links. Debug commands (need Documents/debug): snapshot,
-// screen, press?title=/n=, back, stats, swipe[?dir=down], remove?u=, taste[?reset=1], gesture?type=double|hold|scrub[&f=].
+// screen, press?title=/n=, back, stats, swipe[?dir=down], remove?u=, saved[?clear=1], taste[?reset=1],
+// gesture?type=double|hold|scrub[&f=]|pos.
 - (BOOL)application:(UIApplication *)application openURL:(NSURL *)url sourceApplication:(NSString *)sourceApplication annotation:(id)annotation
 {
     NSString *s = url.absoluteString ?: @"";
@@ -159,7 +160,10 @@ static BOOL TKPressView(UIView *v, NSString *text)
     if ([target isEqualToString:@"press"]) {
         NSString *byTitle = params[@"title"];
         NSInteger n = [params[@"n"] integerValue];
+        // the screen on top first: a covered screen underneath can have a button with the same label
         NSMutableArray *views = [NSMutableArray array];
+        UIView *topView = top.navigationController.view ?: top.view;
+        if (topView) [views addObject:topView];
         for (UIWindow *w in [UIApplication sharedApplication].windows) [views addObject:w];
         BOOL pressed = NO;
         for (NSUInteger i = 0; i < views.count && !pressed; i++) {
@@ -198,6 +202,11 @@ static BOOL TKPressView(UIView *v, NSString *text)
     if ([target isEqualToString:@"remove"] && [params[@"u"] length]) {
         [TKSettings removeCreator:params[@"u"]];
         TKLog(@"Creators now: %@", [[TKSettings creators] componentsJoinedByString:@", "]);
+        return YES;
+    }
+    if ([target isEqualToString:@"saved"]) {
+        if ([params[@"clear"] isEqualToString:@"1"]) for (NSDictionary *d in [TKSettings savedVideos]) [TKSettings unsaveVideo:TKStr(d[@"id"])];
+        TKLog(@"Saved videos: %lu", (unsigned long)[TKSettings savedVideos].count);
         return YES;
     }
     if ([target isEqualToString:@"taste"]) {
