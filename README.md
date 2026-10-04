@@ -1,9 +1,10 @@
 # Tikie - TikTok on iOS 6
 
-An unofficial TikTok **viewer** for jailbroken iOS 6.x (iPad 2 / iPhone 4S era). A vertical, full-screen feed of
-public videos from the creators you follow, ordered by your own local ranking (what you finish or save rises,
-what you skip falls). You can watch, read comments and save videos for yourself. Read-only: no login, no likes,
-no posting.
+An unofficial TikTok **viewer** for jailbroken iOS 6.x (iPad 2 / iPhone 4S era). A vertical, full-screen "For You"
+feed that tries videos from all of TikTok's topics and learns on the device what you like - what you watch to the
+end, save or skip; no following, no preset creators. You can watch videos and photo posts, live streams, read
+comments and their replies, look at a creator's profile and save videos for yourself. Read-only: no login, no
+likes, no posting.
 
 Tikie is not affiliated with, endorsed by or associated with TikTok or ByteDance. It only reads public content.
 
@@ -14,13 +15,17 @@ TikTok directly for the lists. Instead a tiny helper, **tikie**, runs on your ow
 perfect) and uses the maintained `yt-dlp` to fetch public video lists and fresh direct URLs. The app asks the
 helper for a little JSON; the **video itself streams straight from TikTok's CDN to the device** through Tikie's
 own TLS layer (iOS 6 cannot talk to modern servers otherwise). Away from home, or if a direct URL is refused, the
-helper can also stream the bytes itself.
+helper can also stream the bytes itself. Live streams come as FLV, which the iOS 6 player cannot open: Tikie repacks
+them on the device into a live HLS playlist (nothing is re-encoded, and the Pi does not carry the video).
 
 So: one small service on your server, and the app is a thin, private client. When TikTok changes something, you
 update `yt-dlp` on the server - the app does not need rebuilding.
 
 See `pi/README.md` to run the helper (Docker). Then in the app: Settings - the gear on the feed - set the server
-address (e.g. `https://ytdlp.samcejko.eu`) and, if you set one, the key. Add a creator and the feed fills up.
+address (e.g. `https://ytdlp.samcejko.eu`) and, if you set one, the key. The feed fills up by itself.
+
+Links: `tikie:open?url=<a TikTok link>` opens a video, photo post, profile or live stream (Surfari offers it for
+tiktok.com links), and so does "Open a link" in the gear menu.
 
 ## Installing on the device
 
@@ -31,9 +36,9 @@ The IPA installs with `ipainstaller -f Tikie-<version>.ipa` (AppSync Unified), o
 
 ```
 pi/           the helper that runs on your server (Python + yt-dlp, Docker)
-src/TikTok    the data layer: models, the client that talks to the helper, the local "For You" ranking, keychain
-src/Net       TLS socket, HTTP client, image loader, the media proxy that feeds AVPlayer (shared with the family)
-src/UI        the vertical feed and player, creators, saved, comments, settings
+src/TikTok    the data layer: models, the client that talks to the helper, the "For You" feed and the taste it learns
+src/Net       TLS socket, HTTP client, image loader, the media proxy that feeds AVPlayer, the live FLV->HLS repacker
+src/UI        the vertical feed and player, profiles, live, saved, comments, what it learned, settings
 src/Util      formatting, settings, device helpers
 tools         push/build/release/device scripts, icon, asset generator
 vendor        mbedTLS configuration and glue (the library is fetched by CI)
@@ -41,7 +46,7 @@ vendor        mbedTLS configuration and glue (the library is fetched by CI)
 
 ## Privacy
 
-Your creators, saved videos and taste live on the device. The app talks only to your own helper and to TikTok's
+Your saved videos and what the feed learned live on the device (and the gear menu shows and forgets it). The app talks only to your own helper and to TikTok's
 public CDN. No account, no telemetry.
 
 ## License
