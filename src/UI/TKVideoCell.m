@@ -475,12 +475,12 @@ static FourCharCode TKFourCC(const char *s)
 
 - (BOOL)fastPlayback { return self.playbackRate > 1.01f; }
 
+// (verified on the iPad 2: TikTok's MP4s report canPlayFastForward and really play at 2x)
 - (BOOL)setFastPlayback:(BOOL)fast
 {
-    if (fast && self.item.status != AVPlayerItemStatusReadyToPlay) return NO;
+    if (fast && !(self.item.status == AVPlayerItemStatusReadyToPlay && self.item.canPlayFastForward)) return NO;
     self.playbackRate = fast ? 2.0f : 1.0f;
     if (self.playing) self.player.rate = self.playbackRate;
-    TKLog(@"speed %.1fx: item says canPlayFastForward %d, player rate now %.2f", self.playbackRate, self.item.canPlayFastForward, self.player.rate);
     return YES;
 }
 
@@ -504,8 +504,14 @@ static FourCharCode TKFourCC(const char *s)
     return YES;
 }
 
+- (void)noteTouched
+{
+    if ([self.delegate respondsToSelector:@selector(videoCellWasTouched:)]) [self.delegate videoCellWasTouched:self];
+}
+
 - (void)togglePlay
 {
+    [self noteTouched];
     if (!self.player) return;
     if (self.playing) {
         [self.player pause];
@@ -574,6 +580,7 @@ static FourCharCode TKFourCC(const char *s)
 
 - (void)beginScrub
 {
+    [self noteTouched];
     self.scrubbing = YES;
     self.resumeAfterScrub = self.playing;
     [self.player pause];

@@ -17,7 +17,8 @@
 - (void)ensureAhead:(NSInteger)index by:(NSInteger)count completion:(void (^)(BOOL added))completion;
 
 // What the viewer did: the lessons the taste learns from
-- (void)noteWatched:(TKVideo *)video seconds:(NSTimeInterval)watched duration:(NSTimeInterval)duration;
+// passive: the video ended and the feed moved on by itself - finishing it then says less than swiping on after it
+- (void)noteWatched:(TKVideo *)video seconds:(NSTimeInterval)watched duration:(NSTimeInterval)duration passive:(BOOL)passive;
 - (void)noteSaved:(TKVideo *)video;
 - (void)noteNotInterested:(TKVideo *)video;
 - (void)noteEngaged:(TKVideo *)video weight:(double)weight;          // comments opened, link copied

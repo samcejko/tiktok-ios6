@@ -15,6 +15,11 @@
 
 enum { TKSheetMenu = 1, TKSheetVideo = 2 };
 
+// Auto-advance without anyone touching the screen: the first few moves still teach (mildly), later ones are
+// probably an unattended iPad and teach nothing, and after a few more the feed stops moving on and just loops.
+static const NSInteger TKAutoAdvancesThatTeach = 2;
+static const NSInteger TKAutoAdvancesMax = 5;
+
 // The feed pages vertically only: a sideways drag belongs to the video under it (its scrubber).
 @interface TKPagerScrollView : UIScrollView
 @end
@@ -46,6 +51,9 @@ enum { TKSheetMenu = 1, TKSheetVideo = 2 };
 @property (nonatomic) BOOL appeared;
 @property (nonatomic) BOOL visible;        // on screen (not covered by a full-screen controller)
 @property (nonatomic, weak) TKVideoCell *menuCell;       // the page whose menu (hold) is open
+@property (nonatomic, weak) UIActionSheet *videoMenu;     // that menu while it is up
+@property (nonatomic) NSInteger autoAdvanceStreak;        // moves on by itself since the viewer last did anything
+@property (nonatomic) BOOL autoAdvancing;                 // the page change under way is one of those
 @end
 
 @implementation TKFeedViewController
@@ -311,8 +319,11 @@ enum { TKSheetMenu = 1, TKSheetVideo = 2 };
 
 #pragma mark - Scroll paging
 
+- (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView { [self viewerIsHere]; }
 - (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView { [self pageSettled]; }
 - (void)scrollViewDidEndScrollingAnimation:(UIScrollView *)scrollView { [self pageSettled]; }
+
+- (void)viewerIsHere { self.autoAdvanceStreak = 0; }
 
 - (void)pageSettled
 {
@@ -322,12 +333,15 @@ enum { TKSheetMenu = 1, TKSheetVideo = 2 };
     if (page >= [self count]) page = [self count] - 1;
     if (page == self.currentIndex) return;
 
-    // the lesson: how long the page we leave was really watched
+    // the lesson: how long the page we leave was really watched (an unattended feed teaches nothing)
+    BOOL passive = self.autoAdvancing;
+    self.autoAdvancing = NO;
     TKVideo *leaving = [self videoAt:self.currentIndex];
     TKVideoCell *leavingCell = [self cellAt:self.currentIndex];
     if (leaving && leavingCell) {
         NSTimeInterval watched = [leavingCell takeWatchedSeconds];
-        if (!self.fixedMode) [self.feed noteWatched:leaving seconds:watched duration:leavingCell.duration];
+        if (!self.fixedMode && !(passive && self.autoAdvanceStreak > TKAutoAdvancesThatTeach))
+            [self.feed noteWatched:leaving seconds:watched duration:leavingCell.duration passive:passive];
         [TKSettings markVideoSeen:leaving.videoId];
     }
 
@@ -363,8 +377,11 @@ enum { TKSheetMenu = 1, TKSheetVideo = 2 };
     if (!self.fixedMode) [self.feed noteSaved:v];
 }
 
+- (void)videoCellWasTouched:(TKVideoCell *)cell { [self viewerIsHere]; }
+
 - (void)videoCellDidTapSave:(TKVideoCell *)cell
 {
+    [self viewerIsHere];
     TKVideo *v = cell.video;
     if ([TKSettings isSaved:v.videoId]) {
         [TKSettings unsaveVideo:v.videoId];
@@ -375,10 +392,11 @@ enum { TKSheetMenu = 1, TKSheetVideo = 2 };
 }
 
 // double tap only ever saves (like a like: a second double tap does not undo it)
-- (void)videoCellDidDoubleTap:(TKVideoCell *)cell { [self saveVideoOf:cell]; }
+- (void)videoCellDidDoubleTap:(TKVideoCell *)cell { [self viewerIsHere]; [self saveVideoOf:cell]; }
 
 - (void)videoCellDidTapComments:(TKVideoCell *)cell
 {
+    [self viewerIsHere];
     if (!self.fixedMode) [self.feed noteEngaged:cell.video weight:0.4];
     // in a navigation controller like the other sheets: its bar carries the title and the Done button
     // (presented bare, the sheet had no way to close)
@@ -387,6 +405,7 @@ enum { TKSheetMenu = 1, TKSheetVideo = 2 };
 
 - (void)videoCellDidTapShare:(TKVideoCell *)cell
 {
+    [self viewerIsHere];
     if (!self.fixedMode) [self.feed noteEngaged:cell.video weight:0.5];
     [TKExternalOpen presentShareSheetForURL:[NSURL URLWithString:[cell.video shareURL]] from:self anchor:cell];
 }
@@ -395,16 +414,25 @@ enum { TKSheetMenu = 1, TKSheetVideo = 2 };
 {
     if (cell != [self cellAt:self.currentIndex]) return;
     if (![TKSettings autoAdvance]) return;
+    if (self.videoMenu.visible) return;                        // its menu is open: stay (it loops)
+    if (self.autoAdvanceStreak >= TKAutoAdvancesMax) {         // nobody seems to be watching: loop instead
+        if (self.autoAdvanceStreak == TKAutoAdvancesMax) { [cell showToast:L(@"Auto-advance paused")]; self.autoAdvanceStreak++; }   // (said once)
+        return;
+    }
+    self.autoAdvanceStreak++;
+    self.autoAdvancing = YES;
     [self advance];
 }
 
 // hold = the video's menu
 - (void)videoCell:(TKVideoCell *)cell didLongPressAt:(CGPoint)point
 {
-    if (cell != [self cellAt:self.currentIndex] || !cell.video) return;
+    [self viewerIsHere];
+    if (cell != [self cellAt:self.currentIndex] || !cell.video || self.videoMenu.visible) return;
     self.menuCell = cell;
     UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil delegate:self cancelButtonTitle:nil destructiveButtonTitle:nil otherButtonTitles:nil];
     sheet.tag = TKSheetVideo;
+    self.videoMenu = sheet;
     [sheet addButtonWithTitle:cell.fastPlayback ? L(@"Play at normal speed") : L(@"Play at 2× speed")];
     [sheet addButtonWithTitle:L(@"Not interested")];
     [sheet addButtonWithTitle:L(@"Copy link")];

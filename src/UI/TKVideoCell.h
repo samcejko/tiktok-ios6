@@ -10,6 +10,8 @@
 - (void)videoCellDidReachEnd:(TKVideoCell *)cell;        // one loop finished (for auto-advance / completion)
 - (void)videoCellDidDoubleTap:(TKVideoCell *)cell;       // double tap = save (the cell shows the star burst itself)
 - (void)videoCell:(TKVideoCell *)cell didLongPressAt:(CGPoint)point;   // hold = the video's menu
+@optional
+- (void)videoCellWasTouched:(TKVideoCell *)cell;        // pause/play or seeking: someone is watching
 @end
 
 // One full-screen video page: AVPlayer behind, cover art until the first frame, the author/description overlay,

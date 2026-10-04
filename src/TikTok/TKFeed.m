@@ -192,7 +192,7 @@ static double TKFeedRandom(void) { return ((double)arc4random() + 0.5) / 4294967
     }];
 }
 
-- (void)noteWatched:(TKVideo *)video seconds:(NSTimeInterval)watched duration:(NSTimeInterval)duration
+- (void)noteWatched:(TKVideo *)video seconds:(NSTimeInterval)watched duration:(NSTimeInterval)duration passive:(BOOL)passive
 {
     if (!video) return;
     double dur = duration > 0.5 ? duration : MAX(1.0, (double)video.durationSeconds);
@@ -203,6 +203,7 @@ static double TKFeedRandom(void) { return ((double)arc4random() + 0.5) / 4294967
     else if (r < 0.9) e = 0.6;
     else if (r < 1.6) e = 0.85;                            // to the end
     else e = 1.0;                                          // and again
+    if (passive) e = MIN(e, 0.6);                          // it played out on its own: mild interest at most
     [[TKTaste shared] learnFromVideo:video engagement:e bonus:0];
 }
 
