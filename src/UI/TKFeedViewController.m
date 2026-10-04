@@ -53,7 +53,8 @@ static const NSInteger TKAutoAdvancesMax = 5;
 @property (nonatomic) BOOL muted;
 @property (nonatomic) BOOL appeared;
 @property (nonatomic) BOOL visible;        // on screen (not covered by a full-screen controller)
-@property (nonatomic) BOOL pausedForLive;  // a live stream plays over it
+@property (nonatomic) NSInteger liveScreens;          // live streams on screen over it
+@property (nonatomic, readonly) BOOL pausedForLive;   // (one or more)
 @property (nonatomic, weak) TKVideoCell *menuCell;       // the page whose menu (hold) is open
 @property (nonatomic, weak) UIActionSheet *videoMenu;     // that menu while it is up
 @property (nonatomic) NSInteger autoAdvanceStreak;        // moves on by itself since the viewer last did anything
@@ -425,13 +426,16 @@ static const NSInteger TKAutoAdvancesMax = 5;
     [TKLinkRouter openLiveRoom:cell.video.authorLiveRoom];
 }
 
-// A live stream on screen (over a sheet, where UIKit does not tell the feed it is covered): the page waits
+// A live stream on screen (over a sheet, where UIKit does not tell the feed it is covered): the page waits. Counted:
+// when one stream takes another's place, the new one may come before the old one has gone.
 - (void)livePlaybackChanged:(NSNotification *)note
 {
-    self.pausedForLive = [note.userInfo[@"playing"] boolValue];
+    self.liveScreens = MAX(0, self.liveScreens + ([note.userInfo[@"playing"] boolValue] ? 1 : -1));
     if (self.pausedForLive) [[self cellAt:self.currentIndex] setActive:NO];
     else if (self.visible) [self setActiveIndex:self.currentIndex];
 }
+
+- (BOOL)pausedForLive { return self.liveScreens > 0; }
 
 - (void)videoCellDidTapSave:(TKVideoCell *)cell
 {

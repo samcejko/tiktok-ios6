@@ -125,7 +125,14 @@
     if (!digits.length) return;
     TKLivePlayerViewController *live = [[TKLivePlayerViewController alloc] initWithRoomId:digits];
     live.modalPresentationStyle = UIModalPresentationFullScreen;
-    [[self topController] presentViewController:live animated:YES completion:nil];
+    UIViewController *top = [self topController];
+    if ([top isKindOfClass:[TKLivePlayerViewController class]]) {
+        // another stream on screen (a link from another app): this one takes its place
+        UIViewController *under = top.presentingViewController;
+        [under dismissViewControllerAnimated:NO completion:^{ [under presentViewController:live animated:YES completion:nil]; }];
+        return;
+    }
+    [top presentViewController:live animated:YES completion:nil];
 }
 
 @end
