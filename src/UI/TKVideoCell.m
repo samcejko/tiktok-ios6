@@ -196,7 +196,6 @@ static void *TKItemStatusCtx = &TKItemStatusCtx;
     [self.item addObserver:self forKeyPath:@"status" options:0 context:TKItemStatusCtx];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(itemDidReachEnd:) name:AVPlayerItemDidPlayToEndTimeNotification object:self.item];
     self.player = [AVPlayer playerWithPlayerItem:self.item];
-    self.player.volume = muted ? 0.0 : 1.0;
     self.playerLayer = [AVPlayerLayer playerLayerWithPlayer:self.player];
     self.playerLayer.frame = self.bounds;
     self.playerLayer.videoGravity = AVLayerVideoGravityResizeAspect;
@@ -207,6 +206,24 @@ static void *TKItemStatusCtx = &TKItemStatusCtx;
         [weakSelf tick:CMTimeGetSeconds(time)];
     }];
     if (self.active) [self.player play], self.playing = YES;
+}
+
+// AVPlayer has no volume/muted on iOS 6 (that is iOS 7+); mute by setting the item's audio mix to volume 0.
+- (void)applyVolume
+{
+    AVPlayerItem *item = self.item;
+    if (!item) return;
+    NSArray *tracks = [item.asset tracksWithMediaType:AVMediaTypeAudio];
+    if (!tracks.count) return;
+    AVMutableAudioMix *mix = [AVMutableAudioMix audioMix];
+    NSMutableArray *params = [NSMutableArray array];
+    for (AVAssetTrack *track in tracks) {
+        AVMutableAudioMixInputParameters *p = [AVMutableAudioMixInputParameters audioMixInputParametersWithTrack:track];
+        [p setVolume:(self.wantMuted ? 0.0f : 1.0f) atTime:kCMTimeZero];
+        [params addObject:p];
+    }
+    mix.inputParameters = params;
+    item.audioMix = mix;
 }
 
 - (void)tick:(NSTimeInterval)seconds
@@ -230,6 +247,7 @@ static void *TKItemStatusCtx = &TKItemStatusCtx;
         if (self.item.status == AVPlayerItemStatusReadyToPlay) {
             self.coverView.hidden = YES;
             [self.spinner stopAnimating];
+            [self applyVolume];
             if (self.active && !self.playing) { [self.player play]; self.playing = YES; }
         } else if (self.item.status == AVPlayerItemStatusFailed) {
             // the direct CDN URL can refuse a device on a different network than the Pi; fall back through the Pi
@@ -269,7 +287,7 @@ static void *TKItemStatusCtx = &TKItemStatusCtx;
 - (void)setMuted:(BOOL)muted
 {
     self.wantMuted = muted;
-    self.player.volume = muted ? 0.0 : 1.0;
+    [self applyVolume];
 }
 
 - (void)togglePlay
