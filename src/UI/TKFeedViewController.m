@@ -160,8 +160,13 @@ enum { TKSheetMenu = 1, TKSheetVideo = 2 };
 }
 
 - (BOOL)prefersStatusBarHidden { return YES; }
-- (BOOL)shouldAutorotate { return NO; }
-- (NSUInteger)supportedInterfaceOrientations { return UIInterfaceOrientationMaskPortrait; }
+// Both portrait orientations on the iPad (it is often held or docked the other way up; Info.plist allows both):
+// locked to one, the app showed upside down while its menus and the status bar followed the device.
+- (BOOL)shouldAutorotate { return YES; }
+- (NSUInteger)supportedInterfaceOrientations
+{
+    return TKIsPad() ? (UIInterfaceOrientationMaskPortrait | UIInterfaceOrientationMaskPortraitUpsideDown) : UIInterfaceOrientationMaskPortrait;
+}
 
 - (void)viewDidAppear:(BOOL)animated
 {

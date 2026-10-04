@@ -477,11 +477,14 @@ static FourCharCode TKFourCC(const char *s)
 
 - (BOOL)setFastPlayback:(BOOL)fast
 {
-    if (fast && !(self.item.status == AVPlayerItemStatusReadyToPlay && self.item.canPlayFastForward)) return NO;
+    if (fast && self.item.status != AVPlayerItemStatusReadyToPlay) return NO;
     self.playbackRate = fast ? 2.0f : 1.0f;
     if (self.playing) self.player.rate = self.playbackRate;
+    TKLog(@"speed %.1fx: item says canPlayFastForward %d, player rate now %.2f", self.playbackRate, self.item.canPlayFastForward, self.player.rate);
     return YES;
 }
+
+- (float)playerRate { return self.player.rate; }
 
 #pragma mark - Gestures
 

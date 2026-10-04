@@ -40,4 +40,5 @@
 - (void)simulateDoubleTap;
 - (void)simulateLongPress;
 - (void)simulateScrubTo:(CGFloat)fraction;
+- (float)playerRate;
 @end
