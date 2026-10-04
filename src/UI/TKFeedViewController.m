@@ -130,6 +130,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
 
     self.menuButton = [UIButton buttonWithType:UIButtonTypeCustom];
     [self.menuButton setImage:[[TKTheme shared] gearIconWhite] forState:UIControlStateNormal];
+    self.menuButton.accessibilityLabel = self.fixedMode ? L(@"Mute") : L(@"Menu");   // (icon only: for VoiceOver)
     self.menuButton.layer.shadowOpacity = 0.7;
     [self.menuButton addTarget:self action:@selector(openMenu) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.menuButton];
@@ -137,6 +138,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
     if (self.fixedMode) {
         UIButton *close = [UIButton buttonWithType:UIButtonTypeCustom];
         [close setImage:[[TKTheme shared] closeIconWhite] forState:UIControlStateNormal];
+        close.accessibilityLabel = L(@"Close");
         close.frame = CGRectMake(8, 24, 40, 40);
         close.layer.shadowOpacity = 0.7;
         [close addTarget:self action:@selector(closeFixed) forControlEvents:UIControlEventTouchUpInside];
