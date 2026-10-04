@@ -85,7 +85,7 @@ static BOOL TKPressView(UIView *v, NSString *text)
 // tiktak:open?url=<a TikTok link> (how Surfari hands links over), tiktak:play/<id>, tiktak:user/<handle>,
 // tiktak:live/<room>, tiktak:server?url=&key=, and plain tiktok.com links; tikie: (the app's first name) works the
 // same. Debug commands (need Documents/debug): snapshot, screen, press?title=/n=/item=, back, stats,
-// swipe[?dir=down], saved[?clear=1], taste[?reset=1], gesture?type=double|hold|scrub[&f=]|pos.
+// swipe[?dir=down], saved[?clear=1], taste[?reset=1], gesture?type=double|hold|scrub[&f=]|pos, lang?set=en|cs|system.
 - (BOOL)application:(UIApplication *)application openURL:(NSURL *)url sourceApplication:(NSString *)sourceApplication annotation:(id)annotation
 {
     NSString *s = url.absoluteString ?: @"";
@@ -128,6 +128,18 @@ static BOOL TKPressView(UIView *v, NSString *text)
         return YES;
     }
     if ([target isEqualToString:@"proxylog"]) { [TKMediaProxy shared].logRequests = ![params[@"on"] isEqualToString:@"0"]; return YES; }
+    // lang?set=en|cs|system: the app's own language, for checking both (the device's stays); it applies from the next
+    // launch, so the app quits
+    if ([target isEqualToString:@"lang"]) {
+        NSString *set = params[@"set"] ?: @"system";
+        NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+        if ([set isEqualToString:@"system"]) [d removeObjectForKey:@"AppleLanguages"];
+        else [d setObject:@[ set ] forKey:@"AppleLanguages"];
+        [d synchronize];
+        TKLog(@"Language %@ from the next launch: quitting", set);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ exit(0); });
+        return YES;
+    }
     if ([target isEqualToString:@"snapshot"] || [target isEqualToString:@"screen"]) {
         NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:@"screen.png"];
         BOOL ok = NO;
