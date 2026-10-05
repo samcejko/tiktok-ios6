@@ -62,7 +62,6 @@
 "Remove every saved video?" = "Odebrat všechna uložená videa?";
 "Request failed (HTTP %ld)." = "Požadavek selhal (HTTP %ld).";
 "Save" = "Uložit";
-"Share" = "Sdílet";
 "Saved" = "Uložené";
 "Sending the request failed." = "Odeslání požadavku selhalo.";
 "Sending the request failed: %@" = "Odeslání požadavku selhalo: %@";
@@ -151,8 +150,6 @@
 /* Profiles, comments, links */
 "Profile" = "Profil";
 "%@ followers" = "%@ sledujících";
-"%@ likes" = "%@ lajků";
-"%@ posts" = "%@ příspěvků";
 "Photos" = "Fotky";
 "No public posts to show." = "Žádné veřejné příspěvky.";
 "This profile could not be loaded." = "Profil se nepodařilo načíst.";
@@ -172,3 +169,46 @@
 "The live stream ended." = "Živé vysílání skončilo.";
 "Looking for live streams…" = "Hledám živá vysílání…";
 "Nobody from the feed is live right now. Pull down to look again." = "Teď nikdo z feedu nevysílá. Stáhni seznam dolů a zkus to znovu.";
+
+/* Search, hashtags, sounds, profiles */
+"Search" = "Hledat";
+"Search videos, creators, hashtags" = "Hledat videa, tvůrce, hashtagy";
+"Search TikTok for videos, creators, hashtags and sounds." = "Hledej na TikToku videa, tvůrce, hashtagy a zvuky.";
+"Searching…" = "Hledám…";
+"Nothing found." = "Nic se nenašlo.";
+"Nothing to show." = "Nic tu není.";
+"No videos to show." = "Žádná videa.";
+"Clear search history" = "Smazat historii hledání";
+"Videos" = "Videa";
+"Creators" = "Tvůrci";
+"Hashtags" = "Hashtagy";
+"Sounds" = "Zvuky";
+"Sound" = "Zvuk";
+"Original sound" = "Původní zvuk";
+"%@ videos" = "%@ videí";
+"%@ views" = "%@ zhlédnutí";
+"This hashtag was not found." = "Tento hashtag se nenašel.";
+"This sound was not found." = "Tento zvuk se nenašel.";
+"Following" = "Sleduje";
+"Followers" = "Sledující";
+"Likes" = "To se mi líbí";
+"This account is private." = "Tento účet je soukromý.";
+"Pause" = "Pozastavit";
+
+/* Comments, captions */
+"Comments (%@)" = "Komentáře (%@)";
+"Creator" = "Tvůrce";
+"Captions" = "Titulky";
+"Show captions" = "Zobrazit titulky";
+"Hide captions" = "Skrýt titulky";
+"Captions on" = "Titulky zapnuty";
+"Captions off" = "Titulky vypnuty";
+
+/* Topics at the first start */
+"Topics" = "Témata";
+"Pick topics" = "Vybrat témata";
+"What do you enjoy?" = "Co tě baví?";
+"Pick a few topics so the feed hits the mark from the start. It goes on learning from how you watch." = "Vyber pár témat, ať feed trefuje hned od začátku. Dál se učí sám podle toho, jak koukáš.";
+"Continue" = "Pokračovat";
+"Continue (%lu)" = "Pokračovat (%lu)";
+"Skip" = "Přeskočit";

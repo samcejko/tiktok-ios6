@@ -7,8 +7,17 @@
 
 + (BOOL)openLink:(NSString *)link;                                  // NO when it is not a TikTok link at all
 + (void)openVideoId:(NSString *)videoId author:(NSString *)author;
-+ (void)openProfile:(NSString *)handle;
 + (void)openLiveRoom:(NSString *)roomId;
+
+// Pages (they slide in over the feed, one stack: see TKPageNavigationController)
++ (void)openProfile:(NSString *)handle;
++ (void)openHashtag:(NSString *)name;
++ (void)openSound:(NSString *)soundId title:(NSString *)title;
++ (void)openSearch:(NSString *)query;                               // nil: the empty search page
+// A list of videos full screen, starting at one of them; loadMore (may be nil) brings what follows the `have`
+// videos the list has, near its end (done(nil): nothing more)
++ (void)openVideos:(NSArray *)videos startIndex:(NSInteger)index title:(NSString *)title
+          loadMore:(void (^)(NSUInteger have, void (^done)(NSArray *more)))loadMore;
 
 + (UIViewController *)topController;                               // what is on screen (the one to present from)
 + (void)presentInNavigation:(UIViewController *)controller;         // a sheet (form sheet on the iPad) with a bar

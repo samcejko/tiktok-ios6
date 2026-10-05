@@ -18,7 +18,13 @@ Endpoints (all JSON unless noted):
                                        the headers to send; an H.264 rendition by default (iOS 6 has no HEVC decoder)
   GET /comments?id=<id|url>&count=40    top-level comments (best effort; empty if TikTok withholds them)
   GET /replies?id=<id>&cid=<comment id>&count=20  the replies under one comment
-  GET /profile?name=<handle>           a creator: name, avatar, bio, counts, live room, recent posts
+  GET /profile?name=<handle>[&maxh=]   a creator: name, avatar, bio, link, counts, live room, the newest posts (ready
+                                       to play) and a cursor for more
+  GET /posts?sec=<secUid>&cursor=<ms>[&maxh=]  more of a creator's posts (older than the cursor)
+  GET /search?q=<words>&offset=0[&maxh=]  TikTok search: videos ready to play, and creators when TikTok shows some
+  GET /suggest?q=<start of words>      what TikTok suggests while typing
+  GET /tag?name=<hashtag>&cursor=0[&maxh=]  a hashtag: its counts and videos ready to play
+  GET /sound?id=<music id>&cursor=0[&maxh=]  a sound: title, author, cover, the sound itself and videos using it
   GET /live?room=<room id>             a live room: on or not, title, viewers, owner, streams (FLV, HLS if any)
   GET /lives?count=20                  live rooms seen lately among Explore authors
   GET /expand?u=<tiktok link>          where a (short) TikTok link leads
@@ -26,6 +32,8 @@ Endpoints (all JSON unless noted):
   GET /yt/resolve?id=<youtube id|url>  fresh YouTube stream URLs for the Tubie app (see the YouTube section)
 Set TIKIE_KEY to require ?k=<key> (or X-Tikie-Key header) on every call when you expose this beyond the LAN.
 """
+import base64
+import hashlib
 import http.cookiejar
 import json
 import os
@@ -260,6 +268,7 @@ def _comment_item(c):
     return {"cid": str(c.get("cid") or ""),
             "author": user.get("unique_id") or user.get("nickname") or "",
             "authorName": user.get("nickname") or "",
+            "avatar": _jpeg((user.get("avatar_thumb") or {}).get("url_list")),
             "text": (c.get("text") or "").strip(),
             "likes": c.get("digg_count") or 0,
             "replies": c.get("reply_comment_total") or 0,
@@ -412,11 +421,20 @@ def item_from_web(it, maxh):
         "music": m.get("title") or "",
         "musicId": str(m.get("id") or ""),
         "musicOriginal": bool(m.get("original")),
+        "musicAuthor": m.get("authorName") or "",
+        "musicCover": _jpeg([m.get("coverMedium"), m.get("coverThumb"), m.get("coverLarge")]),
         "category": it.get("CategoryType") or 0,
         "tags": tags[:10],
         "lang": it.get("textLanguage") or "",
         "created": it.get("createTime") or 0,
     }
+    # captions: TikTok's speech recognition of the video (ASR) and machine translations of it (MT), as WebVTT
+    subs = []
+    for s in v.get("subtitleInfos") or []:
+        if s.get("Url") and str(s.get("Format") or "webvtt").lower() == "webvtt":
+            subs.append({"lang": s.get("LanguageCodeName") or "", "source": s.get("Source") or "", "url": s["Url"]})
+    if subs:
+        out["subtitles"] = subs
     images = []
     for img in (it.get("imagePost") or {}).get("images") or []:
         u = _jpeg((img.get("imageURL") or {}).get("urlList"))
@@ -523,34 +541,294 @@ def replies(ref, cid, count):
     CACHE.put(ckey, out, 600 if ok else 60)
     return out
 
-def profile(name):
-    """A creator's profile: who they are (from their page) and their recent posts (yt-dlp)."""
-    name = norm_user(name)
-    if not name:
-        raise ValueError("no user")
-    ckey = "profile:%s" % name
+# --- Signed web API calls --------------------------------------------------
+# Search, hashtags and sounds answer a logged-out visitor only when the query carries TikTok's X-Bogus signature:
+# an RC4/MD5 checksum of the query, the User-Agent and the time, which TikTok's own web page computes the same way.
+# The algorithm follows f2's xbogus.py (Apache-2.0, https://github.com/Johnserf-Seed/f2). Unsigned or wrongly signed
+# requests get an empty 200 answer.
+
+_XB_HEX = {c: i for i, c in enumerate("0123456789abcdef")}
+_XB_ALPHABET = "Dkdpgh4ZKsQB80/Mfvw36XI1R25-WUAlEi7NLboqYTOPuzmFjJnryx9HVGcaStCe="
+_DEVICE_ID = str(random.randint(7250000000000000000, 7351147085025500000))
+_MS_TOKEN = "".join(random.choice("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") for _ in range(126)) + "=="
+
+
+def _rc4(key, data):
+    s = list(range(256))
+    j = 0
+    for i in range(256):
+        j = (j + s[i] + key[i % len(key)]) % 256
+        s[i], s[j] = s[j], s[i]
+    out = bytearray()
+    i = j = 0
+    for b in data:
+        i = (i + 1) % 256
+        j = (j + s[i]) % 256
+        s[i], s[j] = s[j], s[i]
+        out.append(b ^ s[(s[i] + s[j]) % 256])
+    return bytes(out)
+
+
+def _unhex(h):
+    return bytes((_XB_HEX[h[k]] << 4) | _XB_HEX[h[k + 1]] for k in range(0, len(h), 2))
+
+
+def x_bogus(query, ua=UA):
+    """The X-Bogus value for a query string sent with the User-Agent `ua`."""
+    md5 = lambda b: hashlib.md5(b).hexdigest()
+    ua_sum = _unhex(md5(base64.b64encode(_rc4(b"\x00\x01\x0c", ua.encode("latin-1")))))
+    empty_sum = _unhex(md5(_unhex("d41d8cd98f00b204e9800998ecf8427e")))
+    query_sum = _unhex(md5(_unhex(md5(query.encode("utf-8")))))
+    t, ct = int(time.time()), 536919696
+    arr = [64, 0, 1, 12, query_sum[14], query_sum[15], empty_sum[14], empty_sum[15], ua_sum[14], ua_sum[15],
+           t >> 24 & 255, t >> 16 & 255, t >> 8 & 255, t & 255, ct >> 24 & 255, ct >> 16 & 255, ct >> 8 & 255, ct & 255]
+    check = 0
+    for b in arr:
+        check ^= b
+    arr.append(check)
+    garbled = bytes([2, 255]) + _rc4(b"\xff", bytes(arr))
+    out = []
+    for k in range(0, len(garbled), 3):
+        n = (garbled[k] << 16) | (garbled[k + 1] << 8) | garbled[k + 2]
+        out.append(_XB_ALPHABET[n >> 18 & 63] + _XB_ALPHABET[n >> 12 & 63] + _XB_ALPHABET[n >> 6 & 63] + _XB_ALPHABET[n & 63])
+    return "".join(out)
+
+
+def _web_params(page):
+    """What TikTok's web page sends along with every API call."""
+    return {"WebIdLastTime": str(int(time.time())), "aid": "1988", "app_language": "en", "app_name": "tiktok_web",
+            "browser_language": "en-US", "browser_name": "Mozilla", "browser_online": "true", "browser_platform": "Win32",
+            "browser_version": UA[len("Mozilla/"):], "channel": "tiktok_web", "cookie_enabled": "true",
+            "device_id": _DEVICE_ID, "device_platform": "web_pc", "focus_state": "true", "from_page": page,
+            "history_len": "3", "is_fullscreen": "false", "is_page_visible": "true", "language": "en", "os": "windows",
+            "priority_region": "", "referer": "", "region": "CZ", "screen_height": "1080", "screen_width": "1920",
+            "tz_name": "Europe/Prague", "webcast_language": "en"}
+
+
+def _web_api(path, params, page, referer, sign=True):
+    """A tiktok.com web API call in the logged-out session -> (json, session headers). An empty answer is asked once
+    more in a fresh session; ({}, headers) when TikTok still says nothing."""
+    data, jar = {}, None
+    for attempt in (0, 1):
+        opener, jar = _web_session(fresh=(attempt == 1))
+        p = _web_params(page)
+        p.update(params)
+        p["msToken"] = _MS_TOKEN
+        q = urllib.parse.urlencode(p, quote_via=urllib.parse.quote)
+        if sign:
+            q += "&X-Bogus=" + x_bogus(q)
+        req = urllib.request.Request("https://www.tiktok.com%s?%s" % (path, q),
+                                     headers={"User-Agent": UA, "Referer": referer, "Accept-Language": "en-US,en;q=0.9"})
+        with opener.open(req, timeout=20) as r:
+            body = r.read()
+        if body:
+            data = json.loads(body.decode("utf-8", "replace") or "{}")
+            break
+    return data, _session_headers(jar)
+
+
+def _ready_items(raw, maxh, headers):
+    """Web items -> list items ready to play (their URLs play with the session's headers, kept for /proxy)."""
+    items = []
+    for it in raw or []:
+        x = item_from_web(it, maxh)
+        if x:
+            items.append(x)
+            if x.get("playUrl"):
+                CACHE.put("hdr:" + x["playUrl"], headers, 6 * 3600)
+    return items
+
+
+def search(query, offset, maxh):
+    """TikTok's search ("Top"): 12 videos a page, and creators when TikTok puts a card of them first."""
+    query = re.sub(r"\s+", " ", query or "").strip()[:100]
+    if not query:
+        raise ValueError("no query")
+    offset = max(0, offset)
+    ckey = "search:%s:%d:%d" % (query.lower(), offset, maxh)
     cached = CACHE.get(ckey)
     if cached is not None:
         return cached
-    user = {"handle": name}
+    data, headers = _web_api("/api/search/general/full/", {"keyword": query, "offset": str(offset), "search_source": "normal_search"},
+                             "search", "https://www.tiktok.com/search?q=" + urllib.parse.quote(query))
+    raw, users = [], []
+    for e in data.get("data") or []:
+        if e.get("item"):
+            raw.append(e["item"])
+        for u in e.get("user_list") or []:
+            ui = u.get("user_info") or {}
+            handle = norm_user(ui.get("unique_id"))
+            if handle:
+                users.append({"handle": handle, "name": ui.get("nickname") or handle, "bio": ui.get("signature") or "",
+                              "avatar": _jpeg((ui.get("avatar_thumb") or {}).get("url_list")),
+                              "followers": ui.get("follower_count") or 0, "verified": bool(ui.get("custom_verify")),
+                              "liveRoom": str(ui.get("room_id") or "") if ui.get("room_id") else ""})
+    items = _ready_items(raw, maxh, headers)
+    out = {"items": items, "users": users, "hasMore": bool(data.get("has_more")),
+           "offset": int(data.get("cursor") or offset + len(raw)), "headers": headers}
+    CACHE.put(ckey, out, 300 if (items or users) else 30)
+    return out
+
+
+def suggest(query):
+    """What TikTok suggests for the start of a search (no signature needed)."""
+    query = re.sub(r"\s+", " ", query or "").strip()[:60]
+    if not query:
+        return []
+    ckey = "suggest:%s" % query.lower()
+    cached = CACHE.get(ckey)
+    if cached is not None:
+        return cached
+    q = urllib.parse.urlencode({"aid": "1988", "keyword": query})
+    final, body, jar = _web_get("https://www.tiktok.com/api/search/general/sug/?" + q,
+                                referer="https://www.tiktok.com/search?q=" + urllib.parse.quote(query))
+    data = json.loads(body.decode("utf-8", "replace") or "{}") if body else {}
+    out = []
+    for s in data.get("sug_list") or []:
+        c = (s.get("content") or "").strip()
+        if c and c.lower() not in [x.lower() for x in out]:
+            out.append(c)
+    out = out[:10]
+    CACHE.put(ckey, out, 600)
+    return out
+
+
+def tag(name, cursor, maxh):
+    """A hashtag: its name and counts, and a page of its videos (30)."""
+    name = (name or "").strip().lstrip("#").strip()[:100]
+    if not name:
+        raise ValueError("no hashtag")
+    referer = "https://www.tiktok.com/tag/" + urllib.parse.quote(name)
+    ikey = "taginfo:%s" % name.lower()
+    info = CACHE.get(ikey)
+    if info is None:
+        data, headers = _web_api("/api/challenge/detail/", {"challengeName": name}, "hashtag", referer)
+        ci = data.get("challengeInfo") or {}
+        ch = ci.get("challenge") or {}
+        if not ch.get("id"):
+            CACHE.put(ikey, {}, 60)
+            return {"tag": None, "items": [], "cursor": 0, "hasMore": False}
+        st = ci.get("statsV2") or ci.get("stats") or ch.get("stats") or {}
+        info = {"id": str(ch["id"]), "name": ch.get("title") or name, "desc": ch.get("desc") or "",
+                "videos": int(st.get("videoCount") or 0), "views": int(st.get("viewCount") or 0),
+                "cover": _jpeg([ch.get("profileMedium"), ch.get("coverMedium"), ch.get("profileThumb")])}
+        CACHE.put(ikey, info, 3600)
+    if not info:
+        return {"tag": None, "items": [], "cursor": 0, "hasMore": False}
+    ckey = "tagitems:%s:%d:%d" % (info["id"], cursor, maxh)
+    cached = CACHE.get(ckey)
+    if cached is not None:
+        return cached
+    data, headers = _web_api("/api/challenge/item_list/", {"challengeID": info["id"], "count": "30", "cursor": str(cursor),
+                                                           "coverFormat": "2"}, "hashtag", referer)
+    items = _ready_items(data.get("itemList"), maxh, headers)
+    out = {"tag": info, "items": items, "cursor": int(data.get("cursor") or cursor + 30), "hasMore": bool(data.get("hasMore")),
+           "headers": headers}
+    CACHE.put(ckey, out, 600 if items else 30)
+    return out
+
+
+def sound(mid, cursor, maxh):
+    """A sound: title, author, cover, the sound itself, and a page of the videos that use it (30)."""
+    mid = re.sub(r"\D", "", mid or "")
+    if not mid:
+        raise ValueError("no sound id")
+    referer = "https://www.tiktok.com/music/-%s" % mid
+    ikey = "soundinfo:%s" % mid
+    info = CACHE.get(ikey)
+    if info is None:
+        data, headers = _web_api("/api/music/detail/", {"musicId": mid}, "music", referer)
+        mi = data.get("musicInfo") or {}
+        m, st, au = mi.get("music") or {}, mi.get("stats") or {}, mi.get("author") or {}
+        info = {"id": mid, "title": m.get("title") or "", "author": m.get("authorName") or au.get("nickname") or "",
+                "authorHandle": norm_user(au.get("uniqueId")), "original": bool(m.get("original")),
+                "cover": _jpeg([m.get("coverLarge"), m.get("coverMedium"), m.get("coverThumb")]),
+                "playUrl": m.get("playUrl") or "", "duration": m.get("duration") or 0,
+                "videos": int(st.get("videoCount") or 0), "headers": headers} if m else {}
+        CACHE.put(ikey, info, 3600 if info else 60)
+    ckey = "sounditems:%s:%d:%d" % (mid, cursor, maxh)
+    cached = CACHE.get(ckey)
+    if cached is not None:
+        return cached
+    data, headers = _web_api("/api/music/item_list/", {"musicID": mid, "count": "30", "cursor": str(cursor), "coverFormat": "2"},
+                             "music", referer)
+    items = _ready_items(data.get("itemList"), maxh, headers)
+    out = {"sound": info or None, "items": items, "cursor": int(data.get("cursor") or cursor + 30),
+           "hasMore": bool(data.get("hasMore")), "headers": headers}
+    CACHE.put(ckey, out, 600 if items else 30)
+    return out
+
+
+def posts(sec_uid, cursor, maxh, pages=2):
+    """A creator's posts, newest first, older than `cursor` (ms; 0 = now): `pages` of TikTok's 15 (it refuses more at
+    once). Their creator list answers without a signature (yt-dlp reads it the same way)."""
+    sec_uid = re.sub(r"[^A-Za-z0-9_\-]", "", sec_uid or "")
+    if not sec_uid:
+        raise ValueError("no secUid")
+    cursor = cursor or int(time.time() * 1000)
+    ckey = "posts:%s:%d:%d" % (sec_uid, cursor // 60000, maxh)
+    cached = CACHE.get(ckey)
+    if cached is not None:
+        return cached
+    items, headers, more = [], {}, True
+    for _ in range(max(1, pages)):
+        data, headers = _web_api("/api/creator/item_list/", {"secUid": sec_uid, "count": "15", "cursor": str(cursor), "type": "1"},
+                                 "user", "https://www.tiktok.com/", sign=False)
+        raw = data.get("itemList") or []
+        seen = set(i["id"] for i in items)
+        items += [i for i in _ready_items(raw, maxh, headers) if i["id"] not in seen]
+        last = int((raw[-1].get("createTime") or 0) * 1000) if raw else 0
+        more = bool(data.get("hasMorePrevious")) and 0 < last < cursor
+        if not more:
+            break
+        cursor = last
+    out = {"items": items, "cursor": cursor if more else 0, "hasMore": more, "headers": headers}
+    CACHE.put(ckey, out, 600 if items else 30)
+    return out
+
+
+def profile(name, maxh=1280):
+    """A creator's profile: who they are (from their page) and their newest posts, ready to play (yt-dlp's list when
+    TikTok's creator list says nothing)."""
+    name = norm_user(name)
+    if not name:
+        raise ValueError("no user")
+    ckey = "profile:%s:%d" % (name, maxh)
+    cached = CACHE.get(ckey)
+    if cached is not None:
+        return cached
+    user, sec = {"handle": name}, ""
     try:
         final, html, jar = _web_get("https://www.tiktok.com/@%s" % name)
         ui = (_rehydration(html).get("webapp.user-detail") or {}).get("userInfo") or {}
         u, s = ui.get("user") or {}, ui.get("stats") or {}
         if u:
+            sec = u.get("secUid") or ""
+            likes = s.get("heartCount") or 0
+            if likes < 0 or (s.get("heart") or 0) > likes:      # (heartCount is a 32-bit number and overflows)
+                likes = s.get("heart") or 0
             user = {"handle": norm_user(u.get("uniqueId")) or name, "name": u.get("nickname") or "",
                     "bio": u.get("signature") or "", "verified": bool(u.get("verified")),
                     "avatar": _jpeg([u.get("avatarMedium"), u.get("avatarLarger"), u.get("avatarThumb")]),
                     "liveRoom": str(u.get("roomId") or ""), "followers": s.get("followerCount") or 0,
-                    "likes": s.get("heartCount") or 0, "videos": s.get("videoCount") or 0}
+                    "following": s.get("followingCount") or 0, "likes": likes, "videos": s.get("videoCount") or 0,
+                    "link": ((u.get("bioLink") or {}).get("link") or "").strip(), "private": bool(u.get("privateAccount")),
+                    "secUid": sec}
     except Exception as e:
         sys.stderr.write("profile page of %s failed: %s\n" % (name, e))
-    out = {"user": user, "items": []}
-    try:
-        out["items"] = user_list(name, 30)
-    except Exception as e:
-        sys.stderr.write("profile videos of %s failed: %s\n" % (name, e))
-        out["error"] = "no videos"
+    out = {"user": user, "items": [], "cursor": 0, "hasMore": False}
+    if sec:
+        try:
+            page = posts(sec, 0, maxh)
+            out.update(items=page["items"], cursor=page["cursor"], hasMore=page["hasMore"], headers=page["headers"])
+        except Exception as e:
+            sys.stderr.write("profile posts of %s failed: %s\n" % (name, e))
+    if not out["items"] and not user.get("private"):
+        try:
+            out["items"] = user_list(name, 30)
+        except Exception as e:
+            sys.stderr.write("profile videos of %s failed: %s\n" % (name, e))
+            out["error"] = "no videos"
     CACHE.put(ckey, out, 600)
     return out
 
@@ -755,6 +1033,17 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
+    @staticmethod
+    def _int(q, name, default=0):
+        try:
+            return max(0, int(q.get(name, [str(default)])[0] or default))
+        except ValueError:
+            return default
+
+    @staticmethod
+    def _maxh(q):
+        return max(240, min(Handler._int(q, "maxh", 1280) or 1280, 4096))
+
     def _authorized(self, q):
         if not KEY:
             return True
@@ -804,7 +1093,17 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/replies":
                 return self._send_json({"items": replies(q.get("id", [""])[0], q.get("cid", [""])[0], int(q.get("count", ["20"])[0]))})
             if path == "/profile":
-                return self._send_json(profile(q.get("name", [""])[0]))
+                return self._send_json(profile(q.get("name", [""])[0], self._maxh(q)))
+            if path == "/posts":
+                return self._send_json(posts(q.get("sec", [""])[0], self._int(q, "cursor"), self._maxh(q)))
+            if path == "/search":
+                return self._send_json(search(q.get("q", [""])[0], self._int(q, "offset"), self._maxh(q)))
+            if path == "/suggest":
+                return self._send_json({"items": suggest(q.get("q", [""])[0])})
+            if path == "/tag":
+                return self._send_json(tag(q.get("name", [""])[0], self._int(q, "cursor"), self._maxh(q)))
+            if path == "/sound":
+                return self._send_json(sound(q.get("id", [""])[0], self._int(q, "cursor"), self._maxh(q)))
             if path == "/live":
                 return self._send_json(live(q.get("room", [""])[0]))
             if path == "/lives":

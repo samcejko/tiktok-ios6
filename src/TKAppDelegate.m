@@ -1,5 +1,6 @@
 #import "TKAppDelegate.h"
 #import "TKFeedViewController.h"
+#import "TKPageNavigationController.h"
 #import "TKLivePlayerViewController.h"
 #import "TKVideoCell.h"
 #import "TKTaste.h"
@@ -83,9 +84,10 @@ static BOOL TKPressView(UIView *v, NSString *text)
 }
 
 // tiktak:open?url=<a TikTok link> (how Surfari hands links over), tiktak:play/<id>, tiktak:user/<handle>,
-// tiktak:live/<room>, tiktak:server?url=&key=, and plain tiktok.com links; tikie: (the app's first name) works the
-// same. Debug commands (need Documents/debug): snapshot, screen, press?title=/n=/item=, back, stats,
-// swipe[?dir=down], saved[?clear=1], taste[?reset=1], gesture?type=double|hold|scrub[&f=]|pos, lang?set=en|cs|system.
+// tiktak:live/<room>, tiktak:tag/<hashtag>, tiktak:sound/<id>, tiktak:search?q=, tiktak:server?url=&key=, and plain
+// tiktok.com links; tikie: (the app's first name) works the same. Debug commands (need Documents/debug): snapshot,
+// screen, press?title=/n=/item=, back, stats, swipe[?dir=down], saved[?clear=1], taste[?reset=1],
+// gesture?type=double|hold|scrub[&f=]|pos|comments, lang?set=en|cs|system.
 - (BOOL)application:(UIApplication *)application openURL:(NSURL *)url sourceApplication:(NSString *)sourceApplication annotation:(id)annotation
 {
     NSString *s = url.absoluteString ?: @"";
@@ -102,6 +104,13 @@ static BOOL TKPressView(UIView *v, NSString *text)
     if ([target hasPrefix:@"play/"]) { [TKLinkRouter openVideoId:[target substringFromIndex:@"play/".length] author:nil]; return YES; }
     if ([target hasPrefix:@"user/"]) { [TKLinkRouter openProfile:[target substringFromIndex:@"user/".length]]; return YES; }
     if ([target hasPrefix:@"live/"]) { [TKLinkRouter openLiveRoom:[target substringFromIndex:@"live/".length]]; return YES; }
+    if ([target hasPrefix:@"tag/"]) {
+        NSString *tag = [target substringFromIndex:@"tag/".length];
+        [TKLinkRouter openHashtag:[tag stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding] ?: tag];
+        return YES;
+    }
+    if ([target hasPrefix:@"sound/"]) { [TKLinkRouter openSound:[target substringFromIndex:@"sound/".length] title:nil]; return YES; }
+    if ([target isEqualToString:@"search"]) { [TKLinkRouter openSearch:params[@"q"]]; return YES; }
     if ([target isEqualToString:@"open"] && [params[@"url"] length]) {
         if (![TKLinkRouter openLink:params[@"url"]]) [TKUtils alertWithTitle:L(@"Open a link") message:L(@"That does not look like a TikTok link.")];
         return YES;
@@ -242,12 +251,15 @@ static BOOL TKPressView(UIView *v, NSString *text)
         else if ([type isEqualToString:@"double"]) [cell simulateDoubleTap];
         else if ([type isEqualToString:@"hold"]) [cell simulateLongPress];
         else if ([type isEqualToString:@"scrub"]) [cell simulateScrubTo:(CGFloat)[params[@"f"] doubleValue]];
+        else if ([type isEqualToString:@"comments"]) [cell.delegate videoCellDidTapComments:cell];
         if (cell) TKLog(@"Gesture %@ done: %@ at %.1f / %.1f s, rate %.2f, 2x %d, saved %d | %@", type, cell.video.videoId, cell.currentTime, cell.duration,
                         [cell playerRate], cell.fastPlayback, [TKSettings isSaved:cell.video.videoId], [cell debugPhotoState]);
         return YES;
     }
     if ([target isEqualToString:@"back"]) {
-        if (top != self.feed && [self topController].presentingViewController) [[self topController] dismissViewControllerAnimated:YES completion:nil];
+        TKPageNavigationController *stack = [TKPageNavigationController visibleStack];
+        if (stack) [stack goBack];
+        else if (top != self.feed && [self topController].presentingViewController) [[self topController] dismissViewControllerAnimated:YES completion:nil];
         return YES;
     }
     return YES;

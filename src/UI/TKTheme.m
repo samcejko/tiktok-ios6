@@ -594,22 +594,51 @@ static UIImage *TKDrawImage(CGSize size, void (^draw)(CGContextRef ctx))
     }];
 }
 
-- (UIImage *)skipIconForward:(BOOL)forward
+- (UIImage *)searchIconWhite
 {
-    NSString *key = forward ? @"skip-fwd" : @"skip-back";
-    return [self cachedImage:key builder:^UIImage *{
-        return TKDrawImage(CGSizeMake(30, 30), ^(CGContextRef ctx) {
-            if (!forward) {
-                CGContextTranslateCTM(ctx, 30, 0);
-                CGContextScaleCTM(ctx, -1, 1);
+    return [self cachedImage:@"search-white" builder:^UIImage *{
+        return TKDrawImage(CGSizeMake(28, 28), ^(CGContextRef ctx) {
+            [[UIColor whiteColor] setStroke];
+            UIBezierPath *lens = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(4, 4, 14, 14)];
+            lens.lineWidth = 3;
+            [lens stroke];
+            UIBezierPath *handle = [UIBezierPath bezierPath];
+            [handle moveToPoint:CGPointMake(16.5, 16.5)];
+            [handle addLineToPoint:CGPointMake(24, 24)];
+            handle.lineWidth = 4;
+            handle.lineCapStyle = kCGLineCapRound;
+            [handle stroke];
+        });
+    }];
+}
+
+- (UIImage *)discImageWithSize:(CGFloat)size
+{
+    return [self cachedImage:[NSString stringWithFormat:@"disc-%.0f", size] builder:^UIImage *{
+        return TKDrawImage(CGSizeMake(size, size), ^(CGContextRef ctx) {
+            CGRect all = CGRectMake(0, 0, size, size);
+            [RGB(24, 24, 26) setFill];
+            [[UIBezierPath bezierPathWithOvalInRect:all] fill];
+            // grooves, and a little shine across them
+            [[UIColor colorWithWhite:1 alpha:0.09] setStroke];
+            for (CGFloat inset = size * 0.08; inset < size * 0.24; inset += size * 0.05) {
+                UIBezierPath *groove = [UIBezierPath bezierPathWithOvalInRect:CGRectInset(all, inset, inset)];
+                groove.lineWidth = 1;
+                [groove stroke];
             }
-            [[UIColor whiteColor] setFill];
-            UIBezierPath *a = [UIBezierPath bezierPath];
-            [a moveToPoint:CGPointMake(4, 6)]; [a addLineToPoint:CGPointMake(15, 15)]; [a addLineToPoint:CGPointMake(4, 24)]; [a closePath];
-            [a fill];
-            UIBezierPath *b = [UIBezierPath bezierPath];
-            [b moveToPoint:CGPointMake(15, 6)]; [b addLineToPoint:CGPointMake(26, 15)]; [b addLineToPoint:CGPointMake(15, 24)]; [b closePath];
-            [b fill];
+            CGContextSaveGState(ctx);
+            [[UIBezierPath bezierPathWithOvalInRect:all] addClip];
+            CGFloat colors[] = { 1, 1, 1, 0.16, 1, 1, 1, 0 };
+            CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+            CGGradientRef shine = CGGradientCreateWithColorComponents(space, colors, NULL, 2);
+            CGContextDrawLinearGradient(ctx, shine, CGPointMake(0, 0), CGPointMake(size * 0.6, size * 0.6), 0);
+            CGGradientRelease(shine);
+            CGColorSpaceRelease(space);
+            CGContextRestoreGState(ctx);
+            [[UIColor colorWithWhite:0.45 alpha:1] setStroke];
+            UIBezierPath *rim = [UIBezierPath bezierPathWithOvalInRect:CGRectInset(all, 0.75, 0.75)];
+            rim.lineWidth = 1.5;
+            [rim stroke];
         });
     }];
 }

@@ -1,6 +1,6 @@
 #import "TKProfileViewController.h"
-#import "TKFeedViewController.h"
 #import "TKLinkRouter.h"
+#import "TKExternalOpen.h"
 #import "TKTikTok.h"
 #import "TKModels.h"
 #import "TKImageLoader.h"
@@ -8,82 +8,32 @@
 #import "TKUtils.h"
 #import "TKCommon.h"
 
-static NSString * const TKPostCellId = @"post";
-static NSString * const TKHeaderId = @"header";
-static const CGFloat TKAvatarSize = 84;
-
-#pragma mark - Grid cell
-
-@interface TKProfilePostCell : UICollectionViewCell
-@property (nonatomic, strong) TKImageView *cover;
-@property (nonatomic, strong) UILabel *badge;
-@end
-
-@implementation TKProfilePostCell
-
-- (instancetype)initWithFrame:(CGRect)frame
-{
-    if ((self = [super initWithFrame:frame])) {
-        self.contentView.backgroundColor = [UIColor colorWithWhite:0.12 alpha:1];
-        _cover = [[TKImageView alloc] initWithFrame:self.contentView.bounds];
-        _cover.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        _cover.contentMode = UIViewContentModeScaleAspectFill;
-        _cover.clipsToBounds = YES;
-        [self.contentView addSubview:_cover];
-        _badge = [[UILabel alloc] initWithFrame:CGRectZero];
-        _badge.font = [UIFont boldSystemFontOfSize:11];
-        _badge.textColor = [UIColor whiteColor];
-        _badge.backgroundColor = [UIColor colorWithWhite:0 alpha:0.55];
-        _badge.textAlignment = NSTextAlignmentCenter;
-        _badge.layer.cornerRadius = 4;
-        _badge.layer.masksToBounds = YES;
-        [self.contentView addSubview:_badge];
-    }
-    return self;
-}
-
-- (void)layoutSubviews
-{
-    [super layoutSubviews];
-    CGSize s = [self.badge.text sizeWithFont:self.badge.font];
-    self.badge.hidden = self.badge.text.length == 0;
-    self.badge.frame = CGRectMake(5, self.contentView.bounds.size.height - s.height - 9, ceilf(s.width) + 10, ceilf(s.height) + 4);
-}
-
-@end
+static const CGFloat TKAvatarSize = 96;
 
 #pragma mark - Header
 
-@interface TKProfileHeader : UICollectionReusableView
+@interface TKProfileHeaderView : UIView
+@property (nonatomic, strong) TKProfile *profile;
 @property (nonatomic, strong) TKImageView *avatar;
-@property (nonatomic, strong) UILabel *nameLabel;
 @property (nonatomic, strong) UILabel *handleLabel;
-@property (nonatomic, strong) UILabel *statsLabel;
+@property (nonatomic, strong) UILabel *nameLabel;
+@property (nonatomic, strong) NSArray *valueLabels;       // following, followers, likes
+@property (nonatomic, strong) NSArray *captionLabels;
+@property (nonatomic, strong) NSArray *dividers;
+@property (nonatomic, strong) UIButton *liveButton;
 @property (nonatomic, strong) UILabel *bioLabel;
-@property (nonatomic, strong) UIButton *liveButton;     // while they are live
-+ (CGFloat)heightForProfile:(TKProfile *)profile width:(CGFloat)width;
-- (void)showProfile:(TKProfile *)profile handle:(NSString *)handle;
+@property (nonatomic, strong) UIButton *linkButton;
+@property (nonatomic, strong) UIView *rule;
+- (CGFloat)layoutForWidth:(CGFloat)width apply:(BOOL)apply;
 @end
 
-@implementation TKProfileHeader
+@implementation TKProfileHeaderView
 
-+ (UIFont *)bioFont { return [UIFont systemFontOfSize:14]; }
-
-+ (CGFloat)heightForProfile:(TKProfile *)profile width:(CGFloat)width
-{
-    CGFloat h = 16 + TKAvatarSize + 10 + 22 + 18 + 6 + 18 + 12;
-    if (profile.liveRoom.length) h += 46;
-    if (profile.bio.length) {
-        CGSize s = [[TKUtils displayText:profile.bio] sizeWithFont:[self bioFont] constrainedToSize:CGSizeMake(width - 40, 120) lineBreakMode:NSLineBreakByWordWrapping];
-        h += ceilf(s.height) + 10;
-    }
-    return h;
-}
-
-- (UILabel *)label:(UIFont *)font
+- (UILabel *)label:(UIFont *)font color:(UIColor *)color
 {
     UILabel *l = [[UILabel alloc] initWithFrame:CGRectZero];
     l.font = font;
+    l.textColor = color;
     l.textAlignment = NSTextAlignmentCenter;
     l.backgroundColor = [UIColor clearColor];
     [self addSubview:l];
@@ -93,83 +43,130 @@ static const CGFloat TKAvatarSize = 84;
 - (instancetype)initWithFrame:(CGRect)frame
 {
     if ((self = [super initWithFrame:frame])) {
+        TKTheme *theme = [TKTheme shared];
+        self.backgroundColor = [theme backgroundColor];
         _avatar = [[TKImageView alloc] initWithFrame:CGRectMake(0, 0, TKAvatarSize, TKAvatarSize)];
         _avatar.contentMode = UIViewContentModeScaleAspectFill;
         _avatar.clipsToBounds = YES;
         _avatar.layer.cornerRadius = TKAvatarSize / 2;
         _avatar.backgroundColor = [UIColor colorWithWhite:0.2 alpha:1];
+        _avatar.maxPixels = 300;
         [self addSubview:_avatar];
-        _nameLabel = [self label:[UIFont boldSystemFontOfSize:18]];
-        _handleLabel = [self label:[UIFont systemFontOfSize:14]];
-        _statsLabel = [self label:[UIFont boldSystemFontOfSize:13]];
-        _bioLabel = [self label:[TKProfileHeader bioFont]];
-        _bioLabel.numberOfLines = 0;
+        _handleLabel = [self label:[UIFont boldSystemFontOfSize:18] color:[theme primaryTextColor]];
+        _nameLabel = [self label:[UIFont systemFontOfSize:14] color:[theme secondaryTextColor]];
+        NSMutableArray *values = [NSMutableArray array], *captions = [NSMutableArray array], *dividers = [NSMutableArray array];
+        for (NSString *caption in @[ L(@"Following"), L(@"Followers"), L(@"Likes") ]) {
+            [values addObject:[self label:[UIFont boldSystemFontOfSize:18] color:[theme primaryTextColor]]];
+            UILabel *c = [self label:[UIFont systemFontOfSize:12] color:[theme secondaryTextColor]];
+            c.text = caption;
+            [captions addObject:c];
+        }
+        for (int i = 0; i < 2; i++) {
+            UIView *d = [[UIView alloc] initWithFrame:CGRectZero];
+            d.backgroundColor = [theme separatorColor];
+            [self addSubview:d];
+            [dividers addObject:d];
+        }
+        _valueLabels = values;
+        _captionLabels = captions;
+        _dividers = dividers;
         _liveButton = [UIButton buttonWithType:UIButtonTypeCustom];
-        _liveButton.backgroundColor = [[TKTheme shared] liveColor];
+        _liveButton.backgroundColor = [theme liveColor];
         _liveButton.layer.cornerRadius = 6;
         _liveButton.titleLabel.font = [UIFont boldSystemFontOfSize:15];
         [_liveButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
         [_liveButton setTitleColor:[UIColor colorWithWhite:1 alpha:0.6] forState:UIControlStateHighlighted];
         [_liveButton setTitle:[@"●  " stringByAppendingString:L(@"Watch live")] forState:UIControlStateNormal];
-        _liveButton.hidden = YES;
         [self addSubview:_liveButton];
+        _bioLabel = [self label:[UIFont systemFontOfSize:14] color:[theme primaryTextColor]];
+        _bioLabel.numberOfLines = 6;
+        _linkButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        _linkButton.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+        _linkButton.titleLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
+        [_linkButton setTitleColor:[theme linkColor] forState:UIControlStateNormal];
+        [_linkButton setTitleColor:[theme secondaryTextColor] forState:UIControlStateHighlighted];
+        [self addSubview:_linkButton];
+        _rule = [[UIView alloc] initWithFrame:CGRectZero];
+        _rule.backgroundColor = [theme separatorColor];
+        [self addSubview:_rule];
     }
     return self;
 }
 
-- (void)showProfile:(TKProfile *)p handle:(NSString *)handle
+- (void)setProfile:(TKProfile *)p
 {
-    TKTheme *theme = [TKTheme shared];
-    self.nameLabel.textColor = [theme primaryTextColor];
-    self.bioLabel.textColor = [theme primaryTextColor];
-    self.handleLabel.textColor = [theme secondaryTextColor];
-    self.statsLabel.textColor = [theme secondaryTextColor];
+    _profile = p;
     [self.avatar setImageURL:p.avatarURL placeholder:nil];
     self.avatar.layer.borderColor = [[TKTheme shared] liveColor].CGColor;
     self.avatar.layer.borderWidth = p.liveRoom.length ? 3 : 0;
+    NSString *handle = [@"@" stringByAppendingString:p.handle ?: @""];
+    self.handleLabel.text = p.verified ? [handle stringByAppendingString:@" ✓"] : handle;
+    self.nameLabel.text = p.name.length ? [TKUtils displayText:p.name] : @"";
+    NSArray *counts = @[ @(p.following), @(p.followers), @(p.likes) ];
+    for (NSUInteger i = 0; i < 3; i++) [self.valueLabels[i] setText:[TKUtils formatBigCount:[counts[i] longLongValue]]];
     self.liveButton.hidden = !p.liveRoom.length;
-    NSString *name = p.name.length ? [TKUtils displayText:p.name] : handle;
-    self.nameLabel.text = p.verified ? [name stringByAppendingString:@" ✓"] : name;
-    self.handleLabel.text = [@"@" stringByAppendingString:p.handle.length ? p.handle : handle];
-    NSMutableArray *stats = [NSMutableArray array];
-    if (p.followers) [stats addObject:[NSString stringWithFormat:L(@"%@ followers"), [TKUtils formatCount:(NSInteger)MIN(p.followers, (long long)NSIntegerMax)]]];
-    if (p.likes) [stats addObject:[NSString stringWithFormat:L(@"%@ likes"), [TKUtils formatCount:(NSInteger)MIN(p.likes, (long long)NSIntegerMax)]]];
-    if (p.videoCount) [stats addObject:[NSString stringWithFormat:L(@"%@ posts"), [TKUtils formatCount:p.videoCount]]];
-    self.statsLabel.text = [stats componentsJoinedByString:@"  ·  "];
     self.bioLabel.text = p.bio.length ? [TKUtils displayText:p.bio] : @"";
+    NSString *link = [p.link stringByReplacingOccurrencesOfString:@"https://" withString:@""];
+    link = [link stringByReplacingOccurrencesOfString:@"http://" withString:@""];
+    [self.linkButton setTitle:link.length ? [@"🔗 " stringByAppendingString:link] : nil forState:UIControlStateNormal];
+    self.linkButton.hidden = !link.length;
     [self setNeedsLayout];
+}
+
+// The same arithmetic measures and places, so the grid's header is exactly as tall as what is drawn
+- (CGFloat)layoutForWidth:(CGFloat)w apply:(BOOL)apply
+{
+    CGFloat y = 18;
+    if (apply) self.avatar.frame = CGRectMake(floorf((w - TKAvatarSize) / 2), y, TKAvatarSize, TKAvatarSize);
+    y += TKAvatarSize + 12;
+    if (apply) self.handleLabel.frame = CGRectMake(16, y, w - 32, 22);
+    y += 24;
+    if (self.nameLabel.text.length) {
+        if (apply) self.nameLabel.frame = CGRectMake(16, y, w - 32, 18);
+        y += 20;
+    }
+    y += 12;
+    CGFloat colW = MIN(110, floorf((w - 32) / 3)), left = floorf((w - colW * 3) / 2);
+    for (NSUInteger i = 0; i < 3 && apply; i++) {
+        [self.valueLabels[i] setFrame:CGRectMake(left + colW * i, y, colW, 22)];
+        [self.captionLabels[i] setFrame:CGRectMake(left + colW * i, y + 22, colW, 16)];
+        if (i < 2) [self.dividers[i] setFrame:CGRectMake(left + colW * (i + 1), y + 10, 1, 18)];
+    }
+    y += 38 + 14;
+    if (!self.liveButton.hidden) {
+        if (apply) self.liveButton.frame = CGRectMake(floorf((w - 200) / 2), y, 200, 36);
+        y += 36 + 12;
+    }
+    if (self.bioLabel.text.length) {
+        CGSize s = [self.bioLabel.text sizeWithFont:self.bioLabel.font constrainedToSize:CGSizeMake(MIN(w - 40, 520), 6 * 18)
+                                      lineBreakMode:NSLineBreakByWordWrapping];
+        if (apply) self.bioLabel.frame = CGRectMake(floorf((w - MIN(w - 40, 520)) / 2), y, MIN(w - 40, 520), ceilf(s.height));
+        y += ceilf(s.height) + 8;
+    }
+    if (!self.linkButton.hidden) {
+        if (apply) self.linkButton.frame = CGRectMake(20, y, w - 40, 24);
+        y += 24 + 6;
+    }
+    y += 8;
+    if (apply) self.rule.frame = CGRectMake(0, y - 1, w, 1);
+    return y;
 }
 
 - (void)layoutSubviews
 {
     [super layoutSubviews];
-    CGFloat w = self.bounds.size.width, y = 16;
-    self.avatar.frame = CGRectMake(floorf((w - TKAvatarSize) / 2), y, TKAvatarSize, TKAvatarSize);
-    y += TKAvatarSize + 10;
-    self.nameLabel.frame = CGRectMake(20, y, w - 40, 22);
-    y += 22;
-    self.handleLabel.frame = CGRectMake(20, y, w - 40, 18);
-    y += 18 + 6;
-    self.statsLabel.frame = CGRectMake(10, y, w - 20, 18);
-    y += 18 + 10;
-    if (!self.liveButton.hidden) {
-        self.liveButton.frame = CGRectMake(floorf((w - 200) / 2), y, 200, 36);
-        y += 46;
-    }
-    CGSize s =[self.bioLabel.text sizeWithFont:self.bioLabel.font constrainedToSize:CGSizeMake(w - 40, 120) lineBreakMode:NSLineBreakByWordWrapping];
-    self.bioLabel.frame = CGRectMake(20, y, w - 40, ceilf(s.height));
+    [self layoutForWidth:self.bounds.size.width apply:YES];
 }
 
 @end
 
 #pragma mark - Controller
 
-@interface TKProfileViewController () <UICollectionViewDataSource, UICollectionViewDelegateFlowLayout>
+@interface TKProfileViewController ()
 @property (nonatomic, copy) NSString *handle;
 @property (nonatomic, strong) TKProfile *profile;
-@property (nonatomic, strong) UICollectionView *grid;
-@property (nonatomic, strong) UIActivityIndicatorView *spinner;
-@property (nonatomic, strong) UILabel *messageLabel;
+@property (nonatomic, strong) TKProfileHeaderView *header;
+@property (nonatomic) long long cursor;
 @end
 
 @implementation TKProfileViewController
@@ -184,117 +181,56 @@ static const CGFloat TKAvatarSize = 84;
 
 - (void)viewDidLoad
 {
-    [super viewDidLoad];
     self.title = [@"@" stringByAppendingString:self.handle];
-    self.view.backgroundColor = [[TKTheme shared] backgroundColor];
-    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(done)];
-
-    UICollectionViewFlowLayout *layout = [[UICollectionViewFlowLayout alloc] init];
-    layout.minimumInteritemSpacing = 2;
-    layout.minimumLineSpacing = 2;
-    self.grid = [[UICollectionView alloc] initWithFrame:self.view.bounds collectionViewLayout:layout];
-    self.grid.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    self.grid.backgroundColor = [[TKTheme shared] backgroundColor];
-    self.grid.alwaysBounceVertical = YES;
-    self.grid.dataSource = self;
-    self.grid.delegate = self;
-    [self.grid registerClass:[TKProfilePostCell class] forCellWithReuseIdentifier:TKPostCellId];
-    [self.grid registerClass:[TKProfileHeader class] forSupplementaryViewOfKind:UICollectionElementKindSectionHeader withReuseIdentifier:TKHeaderId];
-    [self.view addSubview:self.grid];
-
-    self.messageLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-    self.messageLabel.textColor = [[TKTheme shared] secondaryTextColor];
-    self.messageLabel.backgroundColor = [UIColor clearColor];
-    self.messageLabel.textAlignment = NSTextAlignmentCenter;
-    self.messageLabel.numberOfLines = 0;
-    self.messageLabel.hidden = YES;
-    [self.view addSubview:self.messageLabel];
-
-    self.spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:[[TKTheme shared] spinnerStyle]];
-    self.spinner.hidesWhenStopped = YES;
-    [self.view addSubview:self.spinner];
-    [self load];
+    [super viewDidLoad];
 }
 
-- (void)viewWillLayoutSubviews
+- (TKHTTPTask *)fetchPageAfterFirst:(BOOL)more completion:(void (^)(NSArray *, BOOL, NSError *))completion
 {
-    [super viewWillLayoutSubviews];
-    CGSize s = self.view.bounds.size;
-    self.spinner.center = CGPointMake(s.width / 2, s.height / 3);
-    self.messageLabel.frame = CGRectMake(30, s.height / 3 - 40, s.width - 60, 80);
-    [self.grid.collectionViewLayout invalidateLayout];
-}
-
-- (BOOL)shouldAutorotate { return YES; }
-- (NSUInteger)supportedInterfaceOrientations { return UIInterfaceOrientationMaskAll; }
-- (void)done { [self dismissViewControllerAnimated:YES completion:nil]; }
-
-- (void)load
-{
-    [self.spinner startAnimating];
-    self.messageLabel.hidden = YES;
-    [TKTikTok profileForUser:self.handle completion:^(TKProfile *profile, NSError *error) {
-        [self.spinner stopAnimating];
-        if (!profile) {
-            self.messageLabel.text = error.localizedDescription ?: L(@"This profile could not be loaded.");
-            self.messageLabel.hidden = NO;
-            return;
-        }
+    if (more) {
+        return [TKTikTok postsOf:self.profile cursor:self.cursor completion:^(TKVideoPage *page, NSError *error) {
+            if (page) self.cursor = page.cursor;
+            completion(page.videos, page.hasMore && page.cursor > 0, error);
+        }];
+    }
+    return [TKTikTok profileForUser:self.handle completion:^(TKProfile *profile, NSError *error) {
+        if (!profile) { completion(nil, NO, error ?: TKMakeError(TKErrorBadResponse, L(@"This profile could not be loaded."))); return; }
         self.profile = profile;
+        self.cursor = profile.postsCursor;
         if (profile.name.length) self.title = [TKUtils displayText:profile.name];
-        if (!profile.videos.count) {
-            self.messageLabel.text = L(@"No public posts to show.");
-            self.messageLabel.hidden = NO;
-        }
-        [self.grid reloadData];
+        self.header.profile = profile;
+        completion(profile.videos, profile.hasMorePosts && profile.secUid.length > 0, nil);
     }];
 }
 
-#pragma mark - Grid
-
-- (NSInteger)collectionView:(UICollectionView *)cv numberOfItemsInSection:(NSInteger)section { return (NSInteger)self.profile.videos.count; }
-
-- (UICollectionViewCell *)collectionView:(UICollectionView *)cv cellForItemAtIndexPath:(NSIndexPath *)ip
+- (UIView *)headerView
 {
-    TKProfilePostCell *cell = [cv dequeueReusableCellWithReuseIdentifier:TKPostCellId forIndexPath:ip];
-    TKVideo *v = self.profile.videos[(NSUInteger)ip.item];
-    [cell.cover setImageURL:v.coverURL placeholder:nil];
-    cell.badge.text = v.isPhoto ? L(@"Photos") : (v.plays ? [@"▶ " stringByAppendingString:[TKUtils formatCount:v.plays]] : @"");
-    [cell setNeedsLayout];
-    return cell;
+    if (!self.profile) return nil;
+    if (!self.header) {
+        self.header = [[TKProfileHeaderView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 300)];
+        [self.header.liveButton addTarget:self action:@selector(openLive) forControlEvents:UIControlEventTouchUpInside];
+        [self.header.linkButton addTarget:self action:@selector(openBioLink) forControlEvents:UIControlEventTouchUpInside];
+        self.header.profile = self.profile;
+    }
+    return self.header;
 }
 
-- (UICollectionReusableView *)collectionView:(UICollectionView *)cv viewForSupplementaryElementOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)ip
-{
-    TKProfileHeader *header = [cv dequeueReusableSupplementaryViewOfKind:kind withReuseIdentifier:TKHeaderId forIndexPath:ip];
-    [header showProfile:self.profile handle:self.handle];
-    [header.liveButton removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
-    [header.liveButton addTarget:self action:@selector(openLive) forControlEvents:UIControlEventTouchUpInside];
-    return header;
-}
+- (CGFloat)headerHeightForWidth:(CGFloat)width { return [(TKProfileHeaderView *)[self headerView] layoutForWidth:width apply:NO]; }
+
+- (NSString *)emptyMessage { return self.profile.isPrivate ? L(@"This account is private.") : L(@"No public posts to show."); }
+- (NSString *)feedTitle { return [@"@" stringByAppendingString:self.profile.handle.length ? self.profile.handle : self.handle]; }
 
 - (void)openLive
 {
     if (self.profile.liveRoom.length) [TKLinkRouter openLiveRoom:self.profile.liveRoom];
 }
 
-- (CGSize)collectionView:(UICollectionView *)cv layout:(UICollectionViewLayout *)layout referenceSizeForHeaderInSection:(NSInteger)section
+- (void)openBioLink
 {
-    if (!self.profile) return CGSizeZero;
-    return CGSizeMake(cv.bounds.size.width, [TKProfileHeader heightForProfile:self.profile width:cv.bounds.size.width]);
-}
-
-- (CGSize)collectionView:(UICollectionView *)cv layout:(UICollectionViewLayout *)layout sizeForItemAtIndexPath:(NSIndexPath *)ip
-{
-    CGFloat w = floorf((cv.bounds.size.width - 4) / 3);
-    return CGSizeMake(w, floorf(w * 4 / 3));
-}
-
-- (void)collectionView:(UICollectionView *)cv didSelectItemAtIndexPath:(NSIndexPath *)ip
-{
-    TKFeedViewController *feed = [[TKFeedViewController alloc] initWithVideos:self.profile.videos startIndex:ip.item title:[@"@" stringByAppendingString:self.handle]];
-    feed.modalPresentationStyle = UIModalPresentationFullScreen;
-    [self presentViewController:feed animated:YES completion:nil];
+    NSString *link = self.profile.link;
+    if (!link.length) return;
+    if (![[link lowercaseString] hasPrefix:@"http"]) link = [@"https://" stringByAppendingString:link];
+    if (![TKLinkRouter openLink:link]) [TKExternalOpen openInBrowser:[NSURL URLWithString:link]];
 }
 
 @end

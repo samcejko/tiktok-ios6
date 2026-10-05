@@ -15,6 +15,8 @@ the user's call. No login, no posting, no access to private content.
 ## On your server (the helper)
 
 - **yt-dlp** - Unlicense / public domain. Fetches the public video lists and direct URLs. https://github.com/yt-dlp/yt-dlp
+- **f2** (Johnserf-Seed) - Apache License 2.0. The helper's X-Bogus signature (`x_bogus` in `pi/tikie_server.py`,
+  used for search, hashtags and sounds) follows its `xbogus.py`. https://github.com/Johnserf-Seed/f2
 - **Python** - PSF License.
 
 The license texts of the shipped libraries are included in the app bundle (Settings).

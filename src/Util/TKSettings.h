@@ -21,6 +21,17 @@
 + (void)setStartMuted:(BOOL)value;
 + (BOOL)autoAdvance;                    // move to the next video when one ends
 + (void)setAutoAdvance:(BOOL)value;
++ (BOOL)showCaptions;                   // TikTok's captions over the video when it has some; default YES
++ (void)setShowCaptions:(BOOL)value;
+
+// The topics picked at the first start (the screen shows once)
++ (BOOL)topicsChosen;
++ (void)setTopicsChosen:(BOOL)value;
+
+// Searches, newest first
++ (NSArray *)searchHistory;
++ (void)addSearch:(NSString *)query;
++ (void)clearSearchHistory;
 
 // Appearance
 + (BOOL)darkTheme;

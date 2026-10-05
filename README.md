@@ -2,9 +2,10 @@
 
 An unofficial TikTok **viewer** for jailbroken iOS 6.x (iPad 2 / iPhone 4S era), in English and Czech. A vertical,
 full-screen "For You" feed that tries videos from all of TikTok's topics and learns on the device what you like -
-what you watch to the end, save or skip; no following, no preset creators. You can watch videos and photo posts,
-live streams, read comments and their replies, look at a creator's profile and save videos for yourself.
-Read-only: no login, no likes, no posting.
+what you watch to the end, save or skip; no following, no preset creators (at the first start you can pick a few
+topics to give it a head start). You can search TikTok, open hashtags and sounds, watch videos and photo posts with
+TikTok's captions, live streams, read comments and their replies, look at a creator's page and save videos for
+yourself. Read-only: no login, no likes, no posting.
 
 TikTak is not affiliated with, endorsed by or associated with TikTok or ByteDance. It only reads public content.
 (Its first name was Tikie, which still shows inside: the bundle, the bundle id and the `tikie:` scheme.)
@@ -26,8 +27,9 @@ update `yt-dlp` on the server - the app does not need rebuilding.
 See `pi/README.md` to run the helper (Docker). Then in the app: Settings - the gear on the feed - set the server
 address (e.g. `https://ytdlp.samcejko.eu`) and, if you set one, the key. The feed fills up by itself.
 
-Links: `tiktak:open?url=<a TikTok link>` (or `tikie:...`) opens a video, photo post, profile or live stream
-(Surfari offers it for tiktok.com links), and so does "Open a link" in the gear menu.
+Links: `tiktak:open?url=<a TikTok link>` (or `tikie:...`) opens a video, photo post, profile, hashtag, sound or
+live stream (Surfari offers it for tiktok.com links), and so does "Open a link" in the gear menu. Also
+`tiktak:search?q=<words>`, `tiktak:tag/<hashtag>` and `tiktak:sound/<id>`.
 
 ## Installing on the device
 

@@ -170,12 +170,74 @@
 + (TKHTTPTask *)profileForUser:(NSString *)handle completion:(void (^)(TKProfile *, NSError *))completion
 {
     NSString *h = [handle hasPrefix:@"@"] ? [handle substringFromIndex:1] : handle;
-    NSString *url = [self urlForPath:@"/profile" query:[NSString stringWithFormat:@"name=%@", [TKUtils urlEncode:h ?: @""]]];
+    NSString *url = [self urlForPath:@"/profile" query:[NSString stringWithFormat:@"name=%@&%@", [TKUtils urlEncode:h ?: @""], [self formatPreference]]];
     if (!url) { completion(nil, [self notConfigured]); return nil; }
     return [TKHTTP getJSON:url headers:nil completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(nil, error); return; }
         TKProfile *p = [TKProfile profileFromJSON:TKDict(json)];
         completion(p, p ? nil : TKMakeError(TKErrorBadResponse, L(@"This profile could not be loaded.")));
+    }];
+}
+
+// One page of a list endpoint
++ (TKHTTPTask *)pageAt:(NSString *)path query:(NSString *)query cursorKey:(NSString *)cursorKey completion:(void (^)(TKVideoPage *, NSError *))completion
+{
+    NSString *url = [self urlForPath:path query:[NSString stringWithFormat:@"%@&%@", query, [self formatPreference]]];
+    if (!url) { completion(nil, [self notConfigured]); return nil; }
+    return [TKHTTP getJSON:url headers:nil completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        TKVideoPage *page = [TKVideoPage pageFromJSON:TKDict(json) cursorKey:cursorKey];
+        completion(page, page ? nil : TKMakeError(TKErrorBadResponse, L(@"The server sent an invalid response.")));
+    }];
+}
+
++ (TKHTTPTask *)postsOf:(TKProfile *)profile cursor:(long long)cursor completion:(void (^)(TKVideoPage *, NSError *))completion
+{
+    NSString *q = [NSString stringWithFormat:@"sec=%@&cursor=%lld", [TKUtils urlEncode:profile.secUid ?: @""], cursor];
+    return [self pageAt:@"/posts" query:q cursorKey:@"cursor" completion:^(TKVideoPage *page, NSError *error) {
+        for (TKVideo *v in page.videos) {
+            if (!v.authorAvatarURL.length) v.authorAvatarURL = profile.avatarURL;
+            if (!v.authorLiveRoom.length) v.authorLiveRoom = profile.liveRoom;
+        }
+        completion(page, error);
+    }];
+}
+
++ (TKHTTPTask *)search:(NSString *)query offset:(long long)offset completion:(void (^)(TKVideoPage *, NSError *))completion
+{
+    NSString *q = [NSString stringWithFormat:@"q=%@&offset=%lld", [TKUtils urlEncode:query ?: @""], offset];
+    return [self pageAt:@"/search" query:q cursorKey:@"offset" completion:completion];
+}
+
++ (TKHTTPTask *)suggestionsFor:(NSString *)text completion:(void (^)(NSArray *, NSError *))completion
+{
+    NSString *url = [self urlForPath:@"/suggest" query:[NSString stringWithFormat:@"q=%@", [TKUtils urlEncode:text ?: @""]]];
+    if (!url) { completion(nil, [self notConfigured]); return nil; }
+    return [TKHTTP getJSON:url headers:nil completion:^(id json, NSInteger status, NSError *error) {
+        NSMutableArray *words = [NSMutableArray array];
+        for (id w in TKArr(TKDict(json)[@"items"])) if (TKStr(w).length) [words addObject:TKStr(w)];
+        completion(error ? nil : words, error);
+    }];
+}
+
++ (TKHTTPTask *)hashtag:(NSString *)name cursor:(long long)cursor completion:(void (^)(TKVideoPage *, NSError *))completion
+{
+    NSString *q = [NSString stringWithFormat:@"name=%@&cursor=%lld", [TKUtils urlEncode:name ?: @""], cursor];
+    return [self pageAt:@"/tag" query:q cursorKey:@"cursor" completion:completion];
+}
+
++ (TKHTTPTask *)sound:(NSString *)soundId cursor:(long long)cursor completion:(void (^)(TKVideoPage *, NSError *))completion
+{
+    NSString *q = [NSString stringWithFormat:@"id=%@&cursor=%lld", [TKUtils urlEncode:soundId ?: @""], cursor];
+    return [self pageAt:@"/sound" query:q cursorKey:@"cursor" completion:completion];
+}
+
++ (TKHTTPTask *)fetchText:(NSString *)url completion:(void (^)(NSString *, NSError *))completion
+{
+    if (!url.length) { completion(nil, TKMakeError(TKErrorBadResponse, L(@"Unexpected response format."))); return nil; }
+    return [TKHTTP get:url headers:nil completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
+        NSString *text = (!error && status < 400 && body.length) ? [[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] : nil;
+        completion(text, text ? nil : (error ?: TKMakeError(status ?: TKErrorBadResponse, L(@"The server sent an invalid response."))));
     }];
 }
 

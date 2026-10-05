@@ -11,6 +11,9 @@
 #import "TKCommentsViewController.h"
 #import "TKLivePlayerViewController.h"
 #import "TKLivesViewController.h"
+#import "TKTopicsViewController.h"
+#import "TKPageNavigationController.h"
+#import "TKBottomSheet.h"
 #import "TKExternalOpen.h"
 #import "TKTheme.h"
 #import "TKUtils.h"
@@ -49,7 +52,12 @@ static const NSInteger TKAutoAdvancesMax = 5;
 @property (nonatomic, strong) UIButton *messageButton;
 @property (nonatomic, strong) UIActivityIndicatorView *spinner;
 @property (nonatomic, strong) UIButton *menuButton;
+@property (nonatomic, strong) UIButton *searchButton;
 @property (nonatomic, strong) UILabel *titleLabel;
+@property (nonatomic, strong) TKBottomSheet *commentsSheet;
+@property (nonatomic, strong) TKCommentsViewController *sheetComments;
+@property (nonatomic) BOOL loadingMore;                   // (a growing fixed list) the next videos are on their way
+@property (nonatomic) BOOL noMore;
 @property (nonatomic) BOOL muted;
 @property (nonatomic) BOOL appeared;
 @property (nonatomic) BOOL visible;        // on screen (not covered by a full-screen controller)
@@ -59,6 +67,8 @@ static const NSInteger TKAutoAdvancesMax = 5;
 @property (nonatomic, weak) UIActionSheet *videoMenu;     // that menu while it is up
 @property (nonatomic) NSInteger autoAdvanceStreak;        // moves on by itself since the viewer last did anything
 @property (nonatomic) BOOL autoAdvancing;                 // the page change under way is one of those
+@property (nonatomic) BOOL pageAnimating;                 // advance's scroll is under way
+@property (nonatomic) CGSize pageSize;                    // the pages' size at the last layout
 @property (nonatomic, strong) UINavigationController *panelNav;   // landscape iPad: comments beside the feed
 @property (nonatomic, strong) TKCommentsViewController *panel;
 @end
@@ -143,18 +153,28 @@ static const NSInteger TKAutoAdvancesMax = 5;
     [self.view addSubview:self.menuButton];
 
     if (self.fixedMode) {
+        // (opened from a page: back to it; on its own: closes)
         UIButton *close = [UIButton buttonWithType:UIButtonTypeCustom];
-        [close setImage:[[TKTheme shared] closeIconWhite] forState:UIControlStateNormal];
-        close.accessibilityLabel = L(@"Close");
+        BOOL back = [self.navigationController isKindOfClass:[TKPageNavigationController class]];
+        [close setImage:back ? [[TKTheme shared] backChevronWhite] : [[TKTheme shared] closeIconWhite] forState:UIControlStateNormal];
+        close.accessibilityLabel = back ? L(@"Back") : L(@"Close");
         close.frame = CGRectMake(8, 24, 40, 40);
         close.layer.shadowOpacity = 0.7;
         [close addTarget:self action:@selector(closeFixed) forControlEvents:UIControlEventTouchUpInside];
         [self.view addSubview:close];
+    } else {
+        self.searchButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        [self.searchButton setImage:[[TKTheme shared] searchIconWhite] forState:UIControlStateNormal];
+        self.searchButton.accessibilityLabel = L(@"Search");
+        self.searchButton.layer.shadowOpacity = 0.7;
+        [self.searchButton addTarget:self action:@selector(openSearch) forControlEvents:UIControlEventTouchUpInside];
+        [self.view addSubview:self.searchButton];
     }
 
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(libraryChanged) name:TKLibraryDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(settingsChanged) name:TKSettingsDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(livePlaybackChanged:) name:TKLivePlaybackNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appBecameActive) name:UIApplicationDidBecomeActiveNotification object:nil];
 }
 
 - (void)dealloc { [[NSNotificationCenter defaultCenter] removeObserver:self]; }
@@ -178,6 +198,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
     [super viewDidLayoutSubviews];
     CGRect all = self.view.bounds;
     CGRect pager = all;
+    if ([self wantsPanel] && self.commentsSheet) [self closeComments];   // (the panel shows them on the side)
     if ([self wantsPanel]) {
         pager.size.width = floorf(all.size.width * 0.58f);
         [self ensurePanel];
@@ -194,12 +215,16 @@ static const NSInteger TKAutoAdvancesMax = 5;
         TKVideoCell *cell = self.cells[k];
         cell.frame = CGRectMake(0, s.height * k.integerValue, s.width, s.height);
     }
-    self.scroll.contentOffset = CGPointMake(0, s.height * self.currentIndex);
+    // Not while the pages move (a finger, or an advance): the feed growing mid-swipe threw the page back
+    BOOL moving = self.scroll.dragging || self.scroll.decelerating || self.pageAnimating;
+    if (!moving || !CGSizeEqualToSize(s, self.pageSize)) self.scroll.contentOffset = CGPointMake(0, s.height * self.currentIndex);
+    self.pageSize = s;
     self.spinner.center = CGPointMake(s.width / 2, s.height / 2);
     self.messageLabel.frame = CGRectMake(30, s.height / 2 - 70, s.width - 60, 90);
     self.messageButton.frame = CGRectMake(s.width / 2 - 80, s.height / 2 + 30, 160, 40);
     self.titleLabel.frame = CGRectMake(s.width / 2 - 100, 26, 200, 20);
     self.menuButton.frame = CGRectMake(s.width - 48, 24, 40, 40);
+    self.searchButton.frame = CGRectMake(8, 24, 40, 40);
 }
 
 - (BOOL)prefersStatusBarHidden { return YES; }
@@ -214,22 +239,39 @@ static const NSInteger TKAutoAdvancesMax = 5;
 {
     [super viewDidAppear:animated];
     self.visible = YES;
-    if (self.appeared) { [self setActiveIndex:self.currentIndex]; return; }
+    if (self.appeared) { if (!self.pausedForLive) [self setActiveIndex:self.currentIndex]; return; }
     self.appeared = YES;
     if (self.fixedMode) {
         [self.view setNeedsLayout];
         [self refreshWindow];
         [self setActiveIndex:self.currentIndex];
+        [self growFixedIfNearEnd];
+    } else if (![TKSettings topicsChosen] && [TKTikTok configured]) {
+        [self askForTopics];     // (the first start: the feed loads once they are picked or skipped)
     } else {
         [self loadFeed];
     }
 }
 
+// Covered (a page, a sheet over everything, a stream): the video waits where it is
 - (void)viewWillDisappear:(BOOL)animated
 {
     [super viewWillDisappear:animated];
     self.visible = NO;
-    [[self cellAt:self.currentIndex] setActive:NO];
+    [[self cellAt:self.currentIndex] setActive:NO rewind:NO];
+}
+
+- (void)askForTopics
+{
+    TKTopicsViewController *topics = [[TKTopicsViewController alloc] init];
+    topics.modalPresentationStyle = UIModalPresentationFullScreen;
+    [self presentViewController:topics animated:YES completion:nil];
+    self.appeared = NO;      // (it marks the topics chosen, picked or skipped; viewDidAppear after it then loads the feed)
+}
+
+- (void)appBecameActive
+{
+    if (self.visible && !self.pausedForLive) [[self cellAt:self.currentIndex] wakeUp];
 }
 
 - (TKVideoCell *)currentCell { return [self cellAt:self.currentIndex]; }
@@ -256,6 +298,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
         self.currentIndex = 0;
         [self.view setNeedsLayout];
         [self.view layoutIfNeeded];
+        self.scroll.contentOffset = CGPointZero;   // (the layout leaves the offset alone while the pages move)
         [self refreshWindow];
         // A video link opened while the feed was loading covers it: playing now would sound under that video.
         // viewDidAppear starts the page once the feed is on screen again.
@@ -280,9 +323,10 @@ static const NSInteger TKAutoAdvancesMax = 5;
     if (!self.fixedMode && self.appeared && [self count] == 0 && !self.feed.loading) [self loadFeed];
 }
 
-// the server address was just set: the empty feed can start now
+// the server address was just set: the empty feed can start now; captions turned on or off
 - (void)settingsChanged
 {
+    for (NSNumber *k in self.cells) [self.cells[k] captionsSettingChanged];
     if (!self.fixedMode && self.appeared && [self count] == 0 && !self.feed.loading && [TKTikTok configured]) [self loadFeed];
 }
 
@@ -354,7 +398,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
 
 #pragma mark - Scroll paging
 
-- (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView { [self viewerIsHere]; }
+- (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView { self.pageAnimating = NO; [self viewerIsHere]; }   // (a finger stops an advance)
 - (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView { [self pageSettled]; }
 - (void)scrollViewDidEndScrollingAnimation:(UIScrollView *)scrollView { [self pageSettled]; }
 
@@ -362,6 +406,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
 
 - (void)pageSettled
 {
+    self.pageAnimating = NO;
     CGFloat h = self.scroll.bounds.size.height;
     NSInteger page = h > 0 ? (NSInteger)(self.scroll.contentOffset.y / h + 0.5) : 0;
     if (page < 0) page = 0;
@@ -387,18 +432,43 @@ static const NSInteger TKAutoAdvancesMax = 5;
     if (!self.fixedMode && page >= [self count] - 4) {
         [self.feed ensureAhead:page by:8 completion:^(BOOL added) {
             if (!added) return;
-            [self.view setNeedsLayout];
-            [self.view layoutIfNeeded];
-            [self refreshWindow];
-            [self prepareIndex:self.currentIndex + 1 play:NO];
+            [self grew];
         }];
     }
+    [self growFixedIfNearEnd];
+}
+
+// A growing fixed list (a hashtag's videos...) asks for its next ones a few pages before its end
+- (void)growFixedIfNearEnd
+{
+    if (!self.fixedMode || !self.loadMore || self.loadingMore || self.noMore || self.currentIndex < [self count] - 4) return;
+    self.loadingMore = YES;
+    __weak TKFeedViewController *weakSelf = self;
+    self.loadMore(self.fixedVideos.count, ^(NSArray *more) {
+        TKFeedViewController *me = weakSelf;
+        if (!me) return;
+        me.loadingMore = NO;
+        if (!more.count) { me.noMore = YES; return; }
+        me.fixedVideos = [me.fixedVideos arrayByAddingObjectsFromArray:more];
+        [me grew];
+    });
+}
+
+// More videos joined the list: room for them, and the next one buffers
+- (void)grew
+{
+    [self.view setNeedsLayout];
+    [self.view layoutIfNeeded];
+    [self refreshWindow];
+    [self prepareIndex:self.currentIndex + 1 play:NO];
 }
 
 - (void)advance
 {
     NSInteger next = self.currentIndex + 1;
-    if (next < [self count]) [self.scroll setContentOffset:CGPointMake(0, self.scroll.bounds.size.height * next) animated:YES];
+    if (next >= [self count] || self.scroll.dragging) return;
+    self.pageAnimating = YES;
+    [self.scroll setContentOffset:CGPointMake(0, self.scroll.bounds.size.height * next) animated:YES];
 }
 
 #pragma mark - Cell delegate
@@ -426,12 +496,32 @@ static const NSInteger TKAutoAdvancesMax = 5;
     [TKLinkRouter openLiveRoom:cell.video.authorLiveRoom];
 }
 
+// A #hashtag or @mention in the caption
+- (void)videoCell:(TKVideoCell *)cell didTapLink:(NSString *)link
+{
+    [self viewerIsHere];
+    if ([link hasPrefix:@"tag:"]) [TKLinkRouter openHashtag:[link substringFromIndex:4]];
+    else if ([link hasPrefix:@"user:"]) [TKLinkRouter openProfile:[link substringFromIndex:5]];
+}
+
+- (void)videoCellDidTapSound:(TKVideoCell *)cell
+{
+    [self viewerIsHere];
+    if (cell.video.musicId.length) [TKLinkRouter openSound:cell.video.musicId title:cell.video.music];
+}
+
+- (void)openSearch
+{
+    [self viewerIsHere];
+    [TKLinkRouter openSearch:nil];
+}
+
 // A live stream on screen (over a sheet, where UIKit does not tell the feed it is covered): the page waits. Counted:
 // when one stream takes another's place, the new one may come before the old one has gone.
 - (void)livePlaybackChanged:(NSNotification *)note
 {
     self.liveScreens = MAX(0, self.liveScreens + ([note.userInfo[@"playing"] boolValue] ? 1 : -1));
-    if (self.pausedForLive) [[self cellAt:self.currentIndex] setActive:NO];
+    if (self.pausedForLive) [[self cellAt:self.currentIndex] setActive:NO rewind:NO];
     else if (self.visible) [self setActiveIndex:self.currentIndex];
 }
 
@@ -456,24 +546,48 @@ static const NSInteger TKAutoAdvancesMax = 5;
 {
     [self viewerIsHere];
     if (!self.fixedMode) [self.feed noteEngaged:cell.video weight:0.4];
-    // in a navigation controller like the other sheets: its bar carries the title and the Done button
-    // (presented bare, the sheet had no way to close)
     if (self.panel && !self.panelNav.view.hidden) return;   // (landscape: they are already beside the video)
-    [self present:[[TKCommentsViewController alloc] initWithVideo:cell.video]];
+    [self showCommentsOf:cell.video];
 }
 
-- (void)videoCellDidTapShare:(TKVideoCell *)cell
+// The comments slide up from the bottom over the lower part of the page; the video plays on above them
+- (void)showCommentsOf:(TKVideo *)video
 {
-    [self viewerIsHere];
-    if (!self.fixedMode) [self.feed noteEngaged:cell.video weight:0.5];
-    [TKExternalOpen presentShareSheetForURL:[NSURL URLWithString:[cell.video shareURL]] from:self anchor:cell];
+    if (self.commentsSheet || !video) return;
+    TKCommentsViewController *comments = [[TKCommentsViewController alloc] initForBottomSheetWithVideo:video];
+    TKBottomSheet *sheet = [[TKBottomSheet alloc] initWithFrame:self.view.bounds];
+    sheet.title = video.commentCount ? [NSString stringWithFormat:L(@"Comments (%@)"), [TKUtils formatCount:video.commentCount]] : L(@"Comments");
+    [self addChildViewController:comments];
+    comments.view.frame = sheet.contentView.bounds;
+    comments.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [sheet.contentView addSubview:comments.view];
+    [comments didMoveToParentViewController:self];
+    __weak TKFeedViewController *weakSelf = self;
+    __weak TKCommentsViewController *weakComments = comments;
+    sheet.onClose = ^{
+        TKCommentsViewController *c = weakComments;
+        [c willMoveToParentViewController:nil];
+        [c.view removeFromSuperview];
+        [c removeFromParentViewController];
+        weakSelf.commentsSheet = nil;
+        weakSelf.sheetComments = nil;
+    };
+    self.commentsSheet = sheet;
+    self.sheetComments = comments;
+    [sheet showInView:self.view];
+}
+
+// A page change or a turn to landscape (the panel shows them there) takes the sheet away
+- (void)closeComments
+{
+    [self.commentsSheet close];
 }
 
 - (void)videoCellDidReachEnd:(TKVideoCell *)cell
 {
     if (cell != [self cellAt:self.currentIndex]) return;
     if (![TKSettings autoAdvance]) return;
-    if (self.videoMenu.visible) return;                        // its menu is open: stay (it loops)
+    if (self.videoMenu.visible || self.commentsSheet) return;  // its menu or comments are open: stay (it loops)
     if (self.autoAdvanceStreak >= TKAutoAdvancesMax) {         // nobody seems to be watching: loop instead
         if (self.autoAdvanceStreak == TKAutoAdvancesMax) { [cell showToast:L(@"Auto-advance paused")]; self.autoAdvanceStreak++; }   // (said once)
         return;
@@ -495,6 +609,8 @@ static const NSInteger TKAutoAdvancesMax = 5;
     [sheet addButtonWithTitle:cell.fastPlayback ? L(@"Play at normal speed") : L(@"Play at 2× speed")];
     [sheet addButtonWithTitle:L(@"Not interested")];
     [sheet addButtonWithTitle:L(@"Copy link")];
+    [sheet addButtonWithTitle:[TKExternalOpen openInBrowserTitle]];
+    if (cell.hasCaptions) [sheet addButtonWithTitle:[TKSettings showCaptions] ? L(@"Hide captions") : L(@"Show captions")];
     sheet.cancelButtonIndex = [sheet addButtonWithTitle:L(@"Cancel")];
     if (TKIsPad()) [sheet showFromRect:CGRectMake(point.x - 1, point.y - 1, 2, 2) inView:cell animated:YES];
     else [sheet showInView:self.view];
@@ -518,6 +634,13 @@ static const NSInteger TKAutoAdvancesMax = 5;
         [UIPasteboard generalPasteboard].string = [v shareURL];
         [cell showToast:L(@"Link copied")];
         if (!self.fixedMode) [self.feed noteEngaged:v weight:0.5];
+    } else if (index == 3) {
+        if (!self.fixedMode) [self.feed noteEngaged:v weight:0.5];
+        [TKExternalOpen openInBrowser:[NSURL URLWithString:[v shareURL]]];
+    } else if (index == 4 && cell.hasCaptions) {
+        BOOL show = ![TKSettings showCaptions];
+        [TKSettings setShowCaptions:show];
+        [cell showToast:show ? L(@"Captions on") : L(@"Captions off")];
     }
 }
 
@@ -588,6 +711,10 @@ static const NSInteger TKAutoAdvancesMax = 5;
     [self presentViewController:nav animated:YES completion:nil];
 }
 
-- (void)closeFixed { [self dismissViewControllerAnimated:YES completion:nil]; }
+- (void)closeFixed
+{
+    if ([self.navigationController isKindOfClass:[TKPageNavigationController class]]) [(TKPageNavigationController *)self.navigationController goBack];
+    else [self dismissViewControllerAnimated:YES completion:nil];
+}
 
 @end

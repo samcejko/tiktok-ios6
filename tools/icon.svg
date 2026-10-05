@@ -1,28 +1,35 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Tikie icon: a glossy dark tile with a play/note mark in TikTok-ish pink and cyan (evokes short video without
-     copying any logo). 160-unit viewBox; iOS rounds it (we also bake rounding in gen_assets); gloss is ours. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="1024" height="1024">
+<!-- TikTak icon "Nota": a white eighth note with cyan and pink offsets on a glossy black tile (evokes short video
+     with sound without copying any logo). 160-unit viewBox; gen_assets bakes the iOS rounding in; the gloss is ours. -->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 160 160" width="1024" height="1024">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#2a2a2e"/>
-      <stop offset="0.55" stop-color="#121214"/>
-      <stop offset="1" stop-color="#050506"/>
+    <linearGradient id="n-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#33333a"/>
+      <stop offset="0.5" stop-color="#141417"/>
+      <stop offset="1" stop-color="#000000"/>
     </linearGradient>
-    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.42"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0.04"/>
+    <radialGradient id="n-glow" cx="0.5" cy="0.56" r="0.46">
+      <stop offset="0" stop-color="#5b2470" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="n-white" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d9dde3"/>
     </linearGradient>
-    <filter id="cyan" x="-30%" y="-30%" width="160%" height="160%">
-      <feOffset dx="-4" dy="2" result="o"/>
-      <feFlood flood-color="#25f4ee"/>
-      <feComposite in2="o" operator="in"/>
-      <feComposite in2="SourceGraphic" operator="over"/>
-    </filter>
+    <linearGradient id="n-gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.36"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.03"/>
+    </linearGradient>
+    <g id="n-note">
+      <ellipse cx="62" cy="112" rx="20" ry="14" transform="rotate(-24 62 112)"/>
+      <rect x="72" y="30" width="11" height="84" rx="2"/>
+      <path d="M78 30 C 94 33, 115 46, 116 68 C 116.5 78, 111 87, 103 93 C 107 82, 105 71, 98 65 C 92 60, 86 58, 80 58 Z"/>
+    </g>
   </defs>
-  <rect width="160" height="160" fill="url(#bg)"/>
-  <!-- cyan ghost offset behind, then the pink play triangle on top -->
-  <path d="M60 46 L116 80 L60 114 Z" fill="#25f4ee" transform="translate(-5,3)" opacity="0.9"/>
-  <path d="M60 46 L116 80 L60 114 Z" fill="#fe2c55"/>
-  <path d="M60 46 L116 80 L60 114 Z" fill="none" stroke="#ffe3ec" stroke-opacity="0.5" stroke-width="1.5"/>
-  <path d="M0 0 H160 V58 C120 86 40 86 0 58 Z" fill="url(#gloss)"/>
+  <rect width="160" height="160" fill="url(#n-bg)"/>
+  <rect width="160" height="160" fill="url(#n-glow)"/>
+  <use xlink:href="#n-note" fill="#25f4ee" transform="translate(-4.5 -3.5)"/>
+  <use xlink:href="#n-note" fill="#fe2c55" transform="translate(4.5 3.5)"/>
+  <use xlink:href="#n-note" fill="url(#n-white)"/>
+  <path d="M0 0 H160 V62 C 118 82, 42 82, 0 62 Z" fill="url(#n-gloss)"/>
 </svg>

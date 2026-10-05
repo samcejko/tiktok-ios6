@@ -1,6 +1,7 @@
 #import "TKSettingsViewController.h"
 #import "TKLanguagesViewController.h"
 #import "TKTasteViewController.h"
+#import "TKTopicsViewController.h"
 #import "TKTikTok.h"
 #import "TKSettings.h"
 #import "TKImageLoader.h"
@@ -34,8 +35,8 @@ enum { SecServer, SecFeed, SecPlayback, SecAppearance, SecNetwork, SecData, SecA
 {
     switch (s) {
         case SecServer: return 4;
-        case SecFeed: return 2;
-        case SecPlayback: return 2;
+        case SecFeed: return 3;
+        case SecPlayback: return 3;
         case SecAppearance: return 1;
         case SecNetwork: return 1;
         case SecData: return 2;
@@ -89,13 +90,16 @@ enum { SecServer, SecFeed, SecPlayback, SecAppearance, SecNetwork, SecData, SecA
             cell.textLabel.text = L(@"Video languages");
             NSUInteger hidden = [TKSettings hiddenLanguages].count;
             cell.detailTextLabel.text = hidden ? [NSString stringWithFormat:L(@"%lu hidden"), (unsigned long)hidden] : L(@"All");
+        } else if (r == 1) {
+            cell.textLabel.text = L(@"Pick topics");
         } else {
             cell.textLabel.text = L(@"What it learned");
         }
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     } else if (s == SecPlayback) {
         if (r == 0) { cell.textLabel.text = L(@"Start muted"); cell.accessoryView = [self switchOn:[TKSettings startMuted] tag:20]; }
-        else { cell.textLabel.text = L(@"Auto-advance"); cell.accessoryView = [self switchOn:[TKSettings autoAdvance] tag:21]; }
+        else if (r == 1) { cell.textLabel.text = L(@"Auto-advance"); cell.accessoryView = [self switchOn:[TKSettings autoAdvance] tag:21]; }
+        else { cell.textLabel.text = L(@"Captions"); cell.accessoryView = [self switchOn:[TKSettings showCaptions] tag:22]; }
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
     } else if (s == SecAppearance) {
         cell.textLabel.text = L(@"Dark theme"); cell.accessoryView = [self switchOn:[TKTheme shared].isDark tag:30]; cell.selectionStyle = UITableViewCellSelectionStyleNone;
@@ -116,6 +120,7 @@ enum { SecServer, SecFeed, SecPlayback, SecAppearance, SecNetwork, SecData, SecA
         case 10: [TKSettings setStreamThroughServer:sw.on]; break;
         case 20: [TKSettings setStartMuted:sw.on]; break;
         case 21: [TKSettings setAutoAdvance:sw.on]; break;
+        case 22: [TKSettings setShowCaptions:sw.on]; break;
         case 30: [[TKTheme shared] setDark:sw.on]; break;
         case 40: [TKSettings setVerifyTLS:sw.on]; [TKSettings save]; break;
     }
@@ -141,7 +146,8 @@ enum { SecServer, SecFeed, SecPlayback, SecAppearance, SecNetwork, SecData, SecA
     } else if (s == SecServer && r == 2) {
         [self testConnection];
     } else if (s == SecFeed) {
-        UIViewController *next = r == 0 ? [[TKLanguagesViewController alloc] init] : [[TKTasteViewController alloc] init];
+        UIViewController *next = r == 0 ? [[TKLanguagesViewController alloc] init]
+                               : r == 1 ? (UIViewController *)[[TKTopicsViewController alloc] init] : [[TKTasteViewController alloc] init];
         [self.navigationController pushViewController:next animated:YES];
     } else if (s == SecData && r == 0) {
         [[TKImageLoader shared] clearMemory];

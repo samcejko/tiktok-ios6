@@ -24,6 +24,9 @@
 - (void)learnFromVideo:(TKVideo *)video engagement:(double)engagement bonus:(double)bonus;
 // A small extra nudge to the features only (comments opened, link copied)
 - (void)nudgeVideo:(TKVideo *)video reward:(double)reward;
+// Topics picked by hand (the first start, or later in the settings): a head start in the topic draws and the scores;
+// the others are not shut out, they just wait more
+- (void)seedTopics:(NSArray *)topicIds;
 
 // For the "what it learned about me" screen
 + (NSString *)localizedTopicName:(NSInteger)topicId;

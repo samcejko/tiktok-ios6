@@ -1,4 +1,6 @@
 #import "TKVideoCell.h"
+#import "TKCaptionView.h"
+#import "TKSubtitles.h"
 #import "TKMediaProxy.h"
 #import "TKTikTok.h"
 #import "TKSettings.h"
@@ -13,6 +15,8 @@ static void *TKItemStatusCtx = &TKItemStatusCtx;
 static const CGFloat TKScrubZoneHeight = 34;
 static const NSTimeInterval TKPhotoSeconds = 3.5;        // a photo post moves on to its next picture after this
 static const CGFloat TKPhotoMaxPixels = 1024;             // longer side of a decoded picture (a full 1080x1450 is 6 MB)
+static const CGFloat TKDiscSize = 48;
+static NSString * const TKSpinKey = @"TKDiscSpin";
 
 // The FourCC of a codec name ("avc1", "hvc1", ...), as a video track's format description reports it
 static FourCharCode TKFourCC(const char *s)
@@ -39,8 +43,16 @@ static FourCharCode TKFourCC(const char *s)
 @property (nonatomic, strong) UIButton *avatarButton;        // on top of the right-hand buttons: the profile
 @property (nonatomic, strong) TKImageView *avatarImage;
 @property (nonatomic, strong) UILabel *liveBadge;            // under the avatar while the creator is live
-@property (nonatomic, strong) UILabel *descLabel;
+@property (nonatomic, strong) TKCaptionView *captionView;     // the description, its hashtags and mentions tappable
 @property (nonatomic, strong) UILabel *musicLabel;
+@property (nonatomic, strong) UIButton *musicButton;         // over the music line: the sound's page
+@property (nonatomic, strong) UIButton *discButton;          // the spinning record at the bottom of the buttons
+@property (nonatomic, strong) TKImageView *discImage;
+@property (nonatomic, strong) UILabel *subtitleLabel;        // TikTok's captions, the line for now
+@property (nonatomic, strong) TKSubtitles *subtitles;
+@property (nonatomic, copy) NSString *subtitleURL;           // the track asked for (a late answer for another is ignored)
+@property (nonatomic, strong) NSTimer *stallTimer;           // after a stall: plays again once enough is loaded
+@property (nonatomic, strong) UISwipeGestureRecognizer *swipeLeft;
 @property (nonatomic, strong) UILabel *errorLabel;
 @property (nonatomic, strong) UILabel *noteLabel;
 @property (nonatomic, strong) UILabel *toastLabel;
@@ -48,7 +60,6 @@ static FourCharCode TKFourCC(const char *s)
 @property (nonatomic, strong) UILabel *saveCountLabel;
 @property (nonatomic, strong) UIButton *commentsButton;
 @property (nonatomic, strong) UILabel *commentsCountLabel;
-@property (nonatomic, strong) UIButton *shareButton;
 @property (nonatomic, strong) UIView *progressBar;
 @property (nonatomic, strong) UIView *scrubZone;
 @property (nonatomic, strong) UILabel *scrubLabel;
@@ -101,9 +112,23 @@ static FourCharCode TKFourCC(const char *s)
         [self addSubview:_progressBar];
 
         _authorLabel = [self labelBold:YES size:16 color:[UIColor whiteColor]];
-        _descLabel = [self labelBold:NO size:14 color:[UIColor whiteColor]];
-        _descLabel.numberOfLines = 3;
+        _captionView = [[TKCaptionView alloc] initWithFrame:CGRectZero];
+        _captionView.font = [UIFont systemFontOfSize:14];
+        _captionView.maxLines = 3;
+        [self addSubview:_captionView];
         _musicLabel = [self labelBold:NO size:12 color:[UIColor colorWithWhite:0.9 alpha:1]];
+        _musicButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        _musicButton.accessibilityLabel = L(@"Sound");
+        [_musicButton addTarget:self action:@selector(tapSound) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:_musicButton];
+
+        _subtitleLabel = [self labelBold:YES size:TKIsPad() ? 17 : 15 color:[UIColor whiteColor]];
+        _subtitleLabel.numberOfLines = 3;
+        _subtitleLabel.textAlignment = NSTextAlignmentCenter;
+        _subtitleLabel.backgroundColor = [UIColor colorWithWhite:0 alpha:0.55];
+        _subtitleLabel.layer.cornerRadius = 5;
+        _subtitleLabel.layer.masksToBounds = YES;
+        _subtitleLabel.hidden = YES;
 
         _errorLabel = [self labelBold:NO size:14 color:[UIColor colorWithWhite:0.9 alpha:1]];
         _errorLabel.numberOfLines = 0;
@@ -124,7 +149,21 @@ static FourCharCode TKFourCC(const char *s)
         _commentsButton = [self iconButton:[[TKTheme shared] chatIconOn:YES] action:@selector(tapComments)];
         _commentsCountLabel = [self labelBold:YES size:12 color:[UIColor whiteColor]];
         _commentsCountLabel.textAlignment = NSTextAlignmentCenter;
-        _shareButton = [self iconButton:[[TKTheme shared] skipIconForward:YES] action:@selector(tapShare)];
+        // the sound: a black record with the cover in the middle, turning while the video plays
+        _discButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        _discButton.frame = CGRectMake(0, 0, TKDiscSize, TKDiscSize);
+        [_discButton setBackgroundImage:[[TKTheme shared] discImageWithSize:TKDiscSize] forState:UIControlStateNormal];
+        _discButton.accessibilityLabel = L(@"Sound");
+        [_discButton addTarget:self action:@selector(tapSound) forControlEvents:UIControlEventTouchUpInside];
+        _discImage = [[TKImageView alloc] initWithFrame:CGRectMake(TKDiscSize * 0.25, TKDiscSize * 0.25, TKDiscSize * 0.5, TKDiscSize * 0.5)];
+        _discImage.contentMode = UIViewContentModeScaleAspectFill;
+        _discImage.clipsToBounds = YES;
+        _discImage.layer.cornerRadius = TKDiscSize * 0.25;
+        _discImage.maxPixels = 100;
+        _discImage.userInteractionEnabled = NO;
+        [_discButton addSubview:_discImage];
+        _discButton.hidden = YES;
+        [self addSubview:_discButton];
         _authorButton = [UIButton buttonWithType:UIButtonTypeCustom];
         [_authorButton addTarget:self action:@selector(tapAuthor) forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:_authorButton];
@@ -157,9 +196,8 @@ static FourCharCode TKFourCC(const char *s)
         _avatarButton.accessibilityLabel = L(@"Profile");
         _saveButton.accessibilityLabel = L(@"Save");
         _commentsButton.accessibilityLabel = L(@"Comments");
-        _shareButton.accessibilityLabel = L(@"Share");
 
-        for (UILabel *l in @[ _authorLabel, _descLabel, _musicLabel, _saveCountLabel, _commentsCountLabel ]) l.layer.shadowOpacity = 0.6, l.layer.shadowRadius = 2, l.layer.shadowOffset = CGSizeMake(0, 1);
+        for (UILabel *l in @[ _authorLabel, _musicLabel, _saveCountLabel, _commentsCountLabel ]) l.layer.shadowOpacity = 0.6, l.layer.shadowRadius = 2, l.layer.shadowOffset = CGSizeMake(0, 1);
 
         // the strip along the bottom edge: drag sideways to seek
         _scrubZone = [[UIView alloc] initWithFrame:CGRectZero];
@@ -184,7 +222,7 @@ static FourCharCode TKFourCC(const char *s)
         doubleTap.numberOfTapsRequired = 2;
         doubleTap.delegate = self;
         [self addGestureRecognizer:doubleTap];
-        UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(togglePlay)];
+        UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped:)];
         [tap requireGestureRecognizerToFail:doubleTap];
         tap.delegate = self;
         [self addGestureRecognizer:tap];
@@ -195,6 +233,12 @@ static FourCharCode TKFourCC(const char *s)
         _scrubPan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(scrubbed:)];
         _scrubPan.delegate = self;
         [_scrubZone addGestureRecognizer:_scrubPan];
+        // swipe to the left: the creator's profile (as in TikTok); the scrubber along the bottom goes first
+        _swipeLeft = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(swipedLeft:)];
+        _swipeLeft.direction = UISwipeGestureRecognizerDirectionLeft;
+        _swipeLeft.delegate = self;
+        [_swipeLeft requireGestureRecognizerToFail:_scrubPan];
+        [self addGestureRecognizer:_swipeLeft];
     }
     return self;
 }
@@ -230,17 +274,21 @@ static FourCharCode TKFourCC(const char *s)
     self.pauseBadge.bounds = CGRectMake(0, 0, 70, 70);
     self.pauseBadge.center = CGPointMake(b.size.width / 2, b.size.height / 2);
     CGFloat railX = b.size.width - 64;
-    CGFloat y = b.size.height - 250;
+    CGFloat y = b.size.height - 240;
     self.saveButton.frame = CGRectMake(railX, y, 48, 48);
     self.saveCountLabel.frame = CGRectMake(railX - 6, y + 48, 60, 16);
     self.commentsButton.frame = CGRectMake(railX, y + 74, 48, 48);
     self.commentsCountLabel.frame = CGRectMake(railX - 6, y + 122, 60, 16);
-    self.shareButton.frame = CGRectMake(railX, y + 148, 48, 48);
+    self.discButton.center = CGPointMake(railX + 24, y + 148 + TKDiscSize / 2);    // (above the scrubbing strip)
     CGFloat textW = b.size.width - 24 - 70;
     self.musicLabel.frame = CGRectMake(14, b.size.height - 44, textW, 16);
-    CGSize ds = [self.descLabel.text sizeWithFont:self.descLabel.font constrainedToSize:CGSizeMake(textW, 60) lineBreakMode:NSLineBreakByTruncatingTail];
-    self.descLabel.frame = CGRectMake(14, b.size.height - 48 - ds.height - 2, textW, ds.height);
-    self.authorLabel.frame = CGRectMake(14, CGRectGetMinY(self.descLabel.frame) - 24, textW, 20);
+    CGSize ms = [self.musicLabel.text ?: @"" sizeWithFont:self.musicLabel.font];
+    self.musicButton.frame = CGRectMake(6, b.size.height - 52, MIN(textW, ceilf(ms.width)) + 16, 30);
+    self.musicButton.hidden = !self.video.musicId.length || !self.musicLabel.text.length;
+    CGSize cs = [self.captionView sizeThatFits:CGSizeMake(textW, CGFLOAT_MAX)];
+    self.captionView.frame = CGRectMake(14, b.size.height - 48 - cs.height - 2, textW, cs.height);
+    self.authorLabel.frame = CGRectMake(14, CGRectGetMinY(self.captionView.frame) - 24, textW, 20);
+    [self layoutSubtitle];
     CGSize nameSize = [self.authorLabel.text sizeWithFont:self.authorLabel.font];
     self.authorButton.frame = CGRectMake(8, CGRectGetMinY(self.authorLabel.frame) - 8, MIN(textW, ceilf(nameSize.width)) + 16, 36);
     self.avatarButton.frame = CGRectMake(railX + 1, y - 64, 46, 46);
@@ -260,6 +308,17 @@ static FourCharCode TKFourCC(const char *s)
         CGFloat w = ceilf(ns.width) + 24, h = ceilf(ns.height) + 14;
         self.noteLabel.frame = CGRectMake(floorf((b.size.width - w) / 2), 70, w, h);   // under the feed's title bar
     }
+}
+
+// The caption line sits over the name, centred
+- (void)layoutSubtitle
+{
+    if (self.subtitleLabel.hidden) return;
+    CGRect b = self.bounds;
+    CGFloat maxW = MIN(b.size.width - 90, 560);
+    CGSize s = [self.subtitleLabel.text ?: @"" sizeWithFont:self.subtitleLabel.font constrainedToSize:CGSizeMake(maxW - 16, 80) lineBreakMode:NSLineBreakByWordWrapping];
+    CGFloat w = ceilf(s.width) + 16, h = ceilf(s.height) + 8;
+    self.subtitleLabel.frame = CGRectMake(floorf((b.size.width - w) / 2), CGRectGetMinY(self.authorLabel.frame) - 14 - h, w, h);
 }
 
 - (void)showNote:(NSString *)note
@@ -293,8 +352,18 @@ static FourCharCode TKFourCC(const char *s)
     self.usingServerProxy = [TKSettings streamThroughServer];
     self.errorLabel.hidden = YES;
     self.authorLabel.text = video.author.length ? [@"@" stringByAppendingString:video.author] : (video.authorName ?: @"");
-    self.descLabel.text = [TKUtils displayText:video.desc];
-    self.musicLabel.text = video.music.length ? [NSString stringWithFormat:@"♪ %@", [TKUtils displayText:video.music]] : @"";
+    self.captionView.text = [TKUtils displayText:video.desc];
+    NSString *music = video.music.length ? [TKUtils displayText:video.music] : @"";
+    if (music.length && video.musicAuthor.length && [music rangeOfString:video.musicAuthor].location == NSNotFound)
+        music = [NSString stringWithFormat:@"%@ - %@", music, [TKUtils displayText:video.musicAuthor]];
+    self.musicLabel.text = music.length ? [@"♪ " stringByAppendingString:music] : @"";
+    self.discButton.hidden = !video.musicId.length;
+    [self.discImage setImageURL:video.musicCoverURL.length ? video.musicCoverURL : video.authorAvatarURL placeholder:nil];
+    [self spinDisc:NO];
+    self.subtitles = nil;
+    self.subtitleURL = nil;
+    self.subtitleLabel.hidden = YES;
+    self.swipeLeft.enabled = video.author.length > 0;
     self.saveCountLabel.text = video.likes ? [TKUtils formatCount:video.likes] : L(@"Save");
     self.commentsCountLabel.text = video.commentCount ? [TKUtils formatCount:video.commentCount] : @"";
     [self updateSavedState:[TKSettings isSaved:video.videoId]];
@@ -355,6 +424,7 @@ static FourCharCode TKFourCC(const char *s)
     self.item = [AVPlayerItem playerItemWithURL:[NSURL URLWithString:local]];
     [self.item addObserver:self forKeyPath:@"status" options:0 context:TKItemStatusCtx];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(itemDidReachEnd:) name:AVPlayerItemDidPlayToEndTimeNotification object:self.item];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(itemStalled:) name:AVPlayerItemPlaybackStalledNotification object:self.item];
     self.player = [AVPlayer playerWithPlayerItem:self.item];
     __weak TKVideoCell *weakSelf = self;
     self.timeObserver = [self.player addPeriodicTimeObserverForInterval:CMTimeMake(1, 4) queue:NULL usingBlock:^(CMTime time) {
@@ -408,6 +478,7 @@ static FourCharCode TKFourCC(const char *s)
     self.errorLabel.hidden = YES;
     [self attachLayer];
     [self applyVolume];
+    [self loadSubtitles];
     if (self.active && !self.playing) [self resume];
 }
 
@@ -416,6 +487,76 @@ static FourCharCode TKFourCC(const char *s)
     if (self.player) self.player.rate = self.playbackRate;    // (-play would reset a 2x speed)
     if (self.player || [self isPhotoPost]) self.playing = YES;
     if ([self isPhotoPost]) [self startPhotoTimer];
+    [self spinDisc:self.playing];
+}
+
+#pragma mark - Captions
+
+- (BOOL)hasCaptions { return self.video.subtitles.count > 0; }
+
+// TikTok's captions for the page about to play (the track is fetched once and kept a while)
+- (void)loadSubtitles
+{
+    NSDictionary *track = [TKSettings showCaptions] ? [TKSubtitles bestTrackOf:self.video.subtitles] : nil;
+    NSString *url = TKStr(track[@"url"]);
+    if (!url.length || [url isEqualToString:self.subtitleURL]) return;
+    self.subtitleURL = url;
+    __weak TKVideoCell *weakSelf = self;
+    [TKSubtitles loadTrack:track completion:^(TKSubtitles *subs) {
+        TKVideoCell *me = weakSelf;
+        if (!me || ![url isEqualToString:me.subtitleURL]) return;
+        me.subtitles = subs;
+        [me showSubtitleAt:me.currentTime];
+    }];
+}
+
+- (void)showSubtitleAt:(NSTimeInterval)t
+{
+    NSString *line = [TKSettings showCaptions] ? [self.subtitles textAt:t] : nil;
+    line = line.length ? [TKUtils displayText:line] : nil;
+    if (!line.length) { self.subtitleLabel.hidden = YES; return; }
+    if (!self.subtitleLabel.hidden && [line isEqualToString:self.subtitleLabel.text]) return;
+    self.subtitleLabel.text = line;
+    self.subtitleLabel.hidden = NO;
+    [self bringSubviewToFront:self.subtitleLabel];
+    [self layoutSubtitle];
+}
+
+- (void)captionsSettingChanged
+{
+    if (![TKSettings showCaptions]) { self.subtitleLabel.hidden = YES; return; }
+    if (self.player) [self loadSubtitles];
+}
+
+#pragma mark - The record
+
+// The disc turns while the video plays and stops where it is when it pauses
+- (void)spinDisc:(BOOL)spin
+{
+    CALayer *layer = self.discButton.layer;
+    if (spin && !self.discButton.hidden) {
+        if (![layer animationForKey:TKSpinKey]) {
+            CABasicAnimation *turn = [CABasicAnimation animationWithKeyPath:@"transform.rotation.z"];
+            turn.fromValue = @0;
+            turn.toValue = @(2 * M_PI);
+            turn.duration = 6;
+            turn.repeatCount = HUGE_VALF;
+            [layer addAnimation:turn forKey:TKSpinKey];
+            layer.speed = 1;
+            layer.timeOffset = 0;
+            layer.beginTime = 0;
+        } else if (layer.speed == 0) {
+            CFTimeInterval paused = layer.timeOffset;
+            layer.speed = 1;
+            layer.timeOffset = 0;
+            layer.beginTime = 0;
+            layer.beginTime = [layer convertTime:CACurrentMediaTime() fromLayer:nil] - paused;
+        }
+    } else if ([layer animationForKey:TKSpinKey] && layer.speed != 0) {
+        CFTimeInterval now = [layer convertTime:CACurrentMediaTime() fromLayer:nil];
+        layer.speed = 0;
+        layer.timeOffset = now;
+    }
 }
 
 // AVPlayer has no volume/muted on iOS 6 (that is iOS 7+); mute by setting the item's audio mix to volume 0.
@@ -468,8 +609,9 @@ static FourCharCode TKFourCC(const char *s)
     if (seconds > self.playedSeconds) self.playedSeconds = seconds;
     if (self.item.status == AVPlayerItemStatusReadyToPlay && self.playerLayer) {
         if (!self.undecodableVideo && self.playerLayer.readyForDisplay) self.coverView.hidden = YES;
-        [self.spinner stopAnimating];
+        if (!self.stallTimer) [self.spinner stopAnimating];
     }
+    if (self.subtitles) [self showSubtitleAt:seconds];
     if (self.scrubbing) return;
     Float64 dur = CMTimeGetSeconds(self.item.duration);
     if (dur > 0 && !isnan(dur)) {
@@ -541,7 +683,9 @@ static FourCharCode TKFourCC(const char *s)
     if (self.active) [self resume];
 }
 
-- (void)setActive:(BOOL)active
+- (void)setActive:(BOOL)active { [self setActive:active rewind:YES]; }
+
+- (void)setActive:(BOOL)active rewind:(BOOL)rewind
 {
     _active = active;
     if (active) {
@@ -550,9 +694,53 @@ static FourCharCode TKFourCC(const char *s)
         [self.player pause];
         self.playing = NO;
         [self stopPhotoTimer];
-        if (self.item) [self.item seekToTime:kCMTimeZero];
+        [self stopStallWatch];
+        [self spinDisc:NO];
+        if (self.item && rewind) [self.item seekToTime:kCMTimeZero];
         self.lastTickTime = -1;
     }
+}
+
+#pragma mark - Stalls
+
+// On iOS 6 a player that ran out of data stays paused when the data comes: it is asked to play on once it can
+- (void)itemStalled:(NSNotification *)note
+{
+    if (note.object != self.item || !self.active || !self.playing) return;
+    TKLog(@"video %@ stalled at %.1f s", self.video.videoId, self.currentTime);
+    [self.spinner startAnimating];
+    if (!self.stallTimer) self.stallTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(stallCheck) userInfo:nil repeats:YES];
+}
+
+- (void)stallCheck
+{
+    if (!self.active || !self.playing || !self.player) { [self stopStallWatch]; return; }
+    if (self.scrubbing) return;
+    if (self.item.playbackLikelyToKeepUp || self.item.playbackBufferFull) {
+        if (self.player.rate == 0) self.player.rate = self.playbackRate;
+        [self stopStallWatch];
+    }
+}
+
+- (void)stopStallWatch
+{
+    [self.stallTimer invalidate];
+    self.stallTimer = nil;
+    if (self.item.status == AVPlayerItemStatusReadyToPlay) [self.spinner stopAnimating];
+}
+
+// The app is in front again: the system paused the player on the way out, and the media proxy may have started
+// again on another port (the player's URL is void then)
+- (void)wakeUp
+{
+    if (!self.active || [self isPhotoPost] || !self.player) return;
+    if (self.proxyGeneration != [TKMediaProxy shared].generation || self.item.status == AVPlayerItemStatusFailed) {
+        TKLog(@"video %@: the player's address went away, starting it again", self.video.videoId);
+        [self teardownPlayer];
+        [self startPlaybackMuted:self.wantMuted];
+        return;
+    }
+    if (self.playing && self.player.rate == 0 && !self.scrubbing) self.player.rate = self.playbackRate;
 }
 
 - (void)setMuted:(BOOL)muted
@@ -582,19 +770,33 @@ static FourCharCode TKFourCC(const char *s)
     return ![touch.view isKindOfClass:[UIControl class]];
 }
 
-// The scrubber takes only sideways drags (the feed pages with vertical ones)
+// The scrubber takes only sideways drags (the feed pages with vertical ones); a photo post's pictures take the
+// swipe to the left themselves
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)g
 {
     if (g == self.scrubPan) {
         CGPoint v = [self.scrubPan velocityInView:self];
         return self.player != nil && ![self isPhotoPost] && fabs(v.x) > fabs(v.y);
     }
+    if (g == self.swipeLeft) return ![self isPhotoPost];
     return YES;
 }
 
 - (void)noteTouched
 {
     if ([self.delegate respondsToSelector:@selector(videoCellWasTouched:)]) [self.delegate videoCellWasTouched:self];
+}
+
+// A tap on a #hashtag or @mention of the caption opens it; anywhere else it pauses or plays
+- (void)tapped:(UITapGestureRecognizer *)g
+{
+    NSString *link = [self.captionView linkAtPoint:[g locationInView:self.captionView]];
+    if (link && [self.delegate respondsToSelector:@selector(videoCell:didTapLink:)]) {
+        [self noteTouched];
+        [self.delegate videoCell:self didTapLink:link];
+        return;
+    }
+    [self togglePlay];
 }
 
 - (void)togglePlay
@@ -604,11 +806,19 @@ static FourCharCode TKFourCC(const char *s)
     if (self.playing) {
         [self.player pause];
         self.playing = NO;
+        [self stopStallWatch];
+        [self spinDisc:NO];
         [self flashPauseBadge:YES];
     } else {
         [self resume];
         [self flashPauseBadge:NO];
     }
+}
+
+- (void)swipedLeft:(UISwipeGestureRecognizer *)g
+{
+    if (g.state != UIGestureRecognizerStateEnded || !self.video.author.length) return;
+    [self tapAuthor];
 }
 
 - (void)flashPauseBadge:(BOOL)paused
@@ -736,7 +946,13 @@ static FourCharCode TKFourCC(const char *s)
 
 - (void)tapSave { [self.delegate videoCellDidTapSave:self]; }
 - (void)tapComments { [self.delegate videoCellDidTapComments:self]; }
-- (void)tapShare { [self.delegate videoCellDidTapShare:self]; }
+
+- (void)tapSound
+{
+    if (!self.video.musicId.length || ![self.delegate respondsToSelector:@selector(videoCellDidTapSound:)]) return;
+    [self noteTouched];
+    [self.delegate videoCellDidTapSound:self];
+}
 
 #pragma mark - Teardown
 
@@ -747,6 +963,7 @@ static FourCharCode TKFourCC(const char *s)
     if (self.item) {
         @try { [self.item removeObserver:self forKeyPath:@"status" context:TKItemStatusCtx]; } @catch (__unused NSException *e) {}
         [[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemDidPlayToEndTimeNotification object:self.item];
+        [[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemPlaybackStalledNotification object:self.item];
     }
     [self.player pause];
     [self.playerLayer removeFromSuperlayer];
@@ -898,6 +1115,11 @@ static FourCharCode TKFourCC(const char *s)
 {
     [self releasePlayer];
     [self stopPhotoTimer];
+    [self stopStallWatch];
+    [self spinDisc:NO];
+    self.subtitleLabel.hidden = YES;
+    self.subtitleURL = nil;
+    self.subtitles = nil;
     self.playing = NO;
     self.playedSeconds = 0;
     self.watchedSeconds = 0;

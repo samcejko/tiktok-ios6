@@ -24,6 +24,15 @@
     return [NSString stringWithFormat:@"%ld", (long)MAX(count, (NSInteger)0)];
 }
 
++ (NSString *)formatBigCount:(long long)count
+{
+    if (count >= 1000000000LL) {
+        double b = count / 1000000000.0;
+        return [NSString stringWithFormat:b >= 10 ? @"%.0fB" : @"%.1fB", b];
+    }
+    return [self formatCount:(NSInteger)MAX(0LL, count)];
+}
+
 + (NSString *)formatViewers:(NSInteger)count
 {
     return [NSString stringWithFormat:L(@"%@ viewers"), [self formatCount:count]];

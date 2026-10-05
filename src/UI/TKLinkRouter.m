@@ -1,6 +1,10 @@
 #import "TKLinkRouter.h"
 #import "TKFeedViewController.h"
 #import "TKProfileViewController.h"
+#import "TKHashtagViewController.h"
+#import "TKSoundViewController.h"
+#import "TKSearchViewController.h"
+#import "TKPageNavigationController.h"
 #import "TKLivePlayerViewController.h"
 #import "TKTikTok.h"
 #import "TKModels.h"
@@ -81,6 +85,25 @@
     NSString *handle = [self handleIn:path];
     NSString *vid = [self digitsAfter:@"/video/" in:path] ?: [self digitsAfter:@"/photo/" in:path];
     if (vid) { [self openVideoId:vid author:handle]; return YES; }
+    // tiktok.com/tag/<name>, /music/<title>-<id>, /search?q=
+    NSArray *parts = [[path stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"/"]] componentsSeparatedByString:@"/"];
+    if (parts.count >= 2 && [[parts[0] lowercaseString] isEqualToString:@"tag"] && [parts[1] length]) {
+        [self openHashtag:[parts[1] stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding] ?: parts[1]];
+        return YES;
+    }
+    if (parts.count >= 2 && [[parts[0] lowercaseString] isEqualToString:@"music"]) {
+        NSString *slug = parts[1];
+        NSRange dash = [slug rangeOfString:@"-" options:NSBackwardsSearch];
+        NSString *soundId = dash.location != NSNotFound ? [slug substringFromIndex:dash.location + 1] : slug;
+        if ([soundId rangeOfCharacterFromSet:[[NSCharacterSet decimalDigitCharacterSet] invertedSet]].location == NSNotFound && soundId.length >= 6) {
+            [self openSound:soundId title:nil];
+            return YES;
+        }
+    }
+    if (parts.count >= 1 && [[parts[0] lowercaseString] isEqualToString:@"search"]) {
+        [self openSearch:TKStr([TKUtils parseQuery:url.query ?: @""][@"q"])];
+        return YES;
+    }
     if (handle && [[[path lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"/"]] hasSuffix:@"/live"]) {
         [self openLiveOf:handle];
         return YES;
@@ -107,16 +130,57 @@
     [TKTikTok resolveId:videoId author:author completion:^(TKVideo *resolved, NSError *error) {
         [self busy:NO];
         if (!resolved) { [TKUtils alertWithTitle:L(@"Open a link") message:error.localizedDescription ?: L(@"This video could not be loaded.")]; return; }
-        TKFeedViewController *feed = [[TKFeedViewController alloc] initWithVideos:@[ resolved ] startIndex:0 title:resolved.author.length ? [@"@" stringByAppendingString:resolved.author] : L(@"Video")];
-        feed.modalPresentationStyle = UIModalPresentationFullScreen;
-        [[self topController] presentViewController:feed animated:YES completion:nil];
+        [self openVideos:@[ resolved ] startIndex:0 title:resolved.author.length ? [@"@" stringByAppendingString:resolved.author] : L(@"Video") loadMore:nil];
     }];
+}
+
++ (void)openVideos:(NSArray *)videos startIndex:(NSInteger)index title:(NSString *)title loadMore:(void (^)(NSUInteger, void (^)(NSArray *)))loadMore
+{
+    if (!videos.count) return;
+    TKFeedViewController *feed = [[TKFeedViewController alloc] initWithVideos:videos startIndex:index title:title];
+    feed.loadMore = loadMore;
+    [TKPageNavigationController showPage:feed];
 }
 
 + (void)openProfile:(NSString *)handle
 {
+    if ([handle hasPrefix:@"@"]) handle = [handle substringFromIndex:1];
     if (!handle.length) return;
-    [self presentInNavigation:[[TKProfileViewController alloc] initWithHandle:handle]];
+    // from that very creator's page (their video opened from it): back to the page rather than a second copy
+    TKPageNavigationController *stack = [TKPageNavigationController visibleStack];
+    NSArray *pages = stack.viewControllers;
+    if (pages.count >= 2) {
+        UIViewController *below = pages[pages.count - 2];
+        if ([below isKindOfClass:[TKProfileViewController class]] &&
+            [[(TKProfileViewController *)below handle] caseInsensitiveCompare:handle] == NSOrderedSame) {
+            [stack popViewControllerAnimated:YES];
+            return;
+        }
+    }
+    [TKPageNavigationController showPage:[[TKProfileViewController alloc] initWithHandle:handle]];
+}
+
++ (void)openHashtag:(NSString *)name
+{
+    NSString *tag = [[name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"#"]];
+    if (!tag.length) return;
+    [TKPageNavigationController showPage:[[TKHashtagViewController alloc] initWithName:tag]];
+}
+
++ (void)openSound:(NSString *)soundId title:(NSString *)title
+{
+    if (!soundId.length) return;
+    [TKPageNavigationController showPage:[[TKSoundViewController alloc] initWithSoundId:soundId title:title]];
+}
+
++ (void)openSearch:(NSString *)query
+{
+    TKPageNavigationController *stack = [TKPageNavigationController visibleStack];
+    if ([stack.topViewController isKindOfClass:[TKSearchViewController class]]) {   // (already searching: search again)
+        if (query.length) [(TKSearchViewController *)stack.topViewController searchFor:query];
+        return;
+    }
+    [TKPageNavigationController showPage:[[TKSearchViewController alloc] initWithQuery:query]];
 }
 
 + (void)openLiveRoom:(NSString *)roomId

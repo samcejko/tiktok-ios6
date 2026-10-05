@@ -63,7 +63,8 @@
 - (UIImage *)backChevronWhite;
 - (UIImage *)minimizeChevronWhite;          // downward chevron: minimise the player to the floating mini bar
 - (UIImage *)replayIcon;                    // circular arrow, for a stream that ended
-- (UIImage *)skipIconForward:(BOOL)forward;
+- (UIImage *)searchIconWhite;               // magnifier over the feed
+- (UIImage *)discImageWithSize:(CGFloat)size;   // a black record with grooves (the sound of a video)
 // misc
 - (UIImage *)starIconFilled:(BOOL)filled color:(UIColor *)color size:(CGFloat)size;
 - (UIImage *)liveDotImage;

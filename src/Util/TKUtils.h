@@ -5,6 +5,7 @@
 
 // Formatting
 + (NSString *)formatCount:(NSInteger)count;                 // 843, 12.3K, 1.2M
++ (NSString *)formatBigCount:(long long)count;              // the same, up to 5.8B (TikTok's view counts)
 + (NSString *)formatViewers:(NSInteger)count;               // "12.3K viewers"
 + (NSString *)formatDuration:(NSTimeInterval)seconds;       // 1:02:03, 4:05
 + (NSString *)formatUptimeSince:(NSDate *)date;             // 2:47 (hours:minutes), "3 min"

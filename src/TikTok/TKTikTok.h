@@ -23,8 +23,20 @@
 + (TKHTTPTask *)commentsForVideo:(NSString *)videoId count:(NSInteger)count completion:(void (^)(NSArray *comments, NSError *error))completion;
 + (TKHTTPTask *)repliesForVideo:(NSString *)videoId comment:(NSString *)commentId count:(NSInteger)count completion:(void (^)(NSArray *replies, NSError *error))completion;
 
-// A creator's page: who they are and their recent posts
+// A creator's page: who they are and their newest posts; more of them, older than the cursor
 + (TKHTTPTask *)profileForUser:(NSString *)handle completion:(void (^)(TKProfile *profile, NSError *error))completion;
++ (TKHTTPTask *)postsOf:(TKProfile *)profile cursor:(long long)cursor completion:(void (^)(TKVideoPage *page, NSError *error))completion;
+
+// TikTok's search (videos ready to play, and the creators it puts first), and what it suggests while typing
++ (TKHTTPTask *)search:(NSString *)query offset:(long long)offset completion:(void (^)(TKVideoPage *page, NSError *error))completion;
++ (TKHTTPTask *)suggestionsFor:(NSString *)text completion:(void (^)(NSArray *words, NSError *error))completion;
+
+// A hashtag's or a sound's videos (page.hashtag / page.sound describe it; 0 = the first page)
++ (TKHTTPTask *)hashtag:(NSString *)name cursor:(long long)cursor completion:(void (^)(TKVideoPage *page, NSError *error))completion;
++ (TKHTTPTask *)sound:(NSString *)soundId cursor:(long long)cursor completion:(void (^)(TKVideoPage *page, NSError *error))completion;
+
+// A small text file straight from TikTok's CDN (captions)
++ (TKHTTPTask *)fetchText:(NSString *)url completion:(void (^)(NSString *text, NSError *error))completion;
 
 // Live: one room (is it on, its streams), and the rooms seen lately among Explore authors (NSDictionary: room, user,
 // name, avatar) - the only way to find live streams without an account

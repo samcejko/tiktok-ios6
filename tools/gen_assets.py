@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generates the app icon and launch images for iOS 6 (run in CI, needs Pillow and rsvg-convert).
 
-The icon is tools/icon.svg: a glass television with a play sign on a red aqua tile, with
+The icon is tools/icon.svg: a white eighth note with cyan and pink offsets on a black tile, with
 its own gloss (UIPrerenderedIcon is on, like Surfari's icon).
 
 Usage: python3 tools/gen_assets.py Resources

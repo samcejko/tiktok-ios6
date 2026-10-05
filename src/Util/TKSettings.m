@@ -15,7 +15,10 @@ static const NSUInteger TKMaxSeen = 4000;
         @"serverBaseURL": @"",
         @"streamThroughServer": @NO,
         @"startMuted": @NO,
-        @"autoAdvance": @YES,
+        @"autoAdvance": @NO,       // (the viewer swipes on; a video loops until then)
+        @"showCaptions": @YES,
+        @"topicsChosen": @NO,
+        @"searchHistory": @[],
         @"darkTheme": @YES,
         @"verifyTLS": @YES,
         @"hiddenLanguages": @[],
@@ -68,6 +71,32 @@ static const NSUInteger TKMaxSeen = 4000;
 + (void)setStartMuted:(BOOL)value { [DEF setBool:value forKey:@"startMuted"]; [self notify]; }
 + (BOOL)autoAdvance { return [DEF boolForKey:@"autoAdvance"]; }
 + (void)setAutoAdvance:(BOOL)value { [DEF setBool:value forKey:@"autoAdvance"]; [self notify]; }
++ (BOOL)showCaptions { return [DEF boolForKey:@"showCaptions"]; }
++ (void)setShowCaptions:(BOOL)value { [DEF setBool:value forKey:@"showCaptions"]; [self notify]; }
++ (BOOL)topicsChosen { return [DEF boolForKey:@"topicsChosen"]; }
++ (void)setTopicsChosen:(BOOL)value { [DEF setBool:value forKey:@"topicsChosen"]; }
+
+#pragma mark - Search
+
++ (NSArray *)searchHistory
+{
+    NSMutableArray *out = [NSMutableArray array];
+    for (id q in TKArr([DEF objectForKey:@"searchHistory"])) if (TKStr(q).length) [out addObject:TKStr(q)];
+    return out;
+}
+
++ (void)addSearch:(NSString *)query
+{
+    NSString *q = [query stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (!q.length) return;
+    NSMutableArray *list = [[self searchHistory] mutableCopy];
+    for (NSInteger i = (NSInteger)list.count - 1; i >= 0; i--) if ([list[(NSUInteger)i] caseInsensitiveCompare:q] == NSOrderedSame) [list removeObjectAtIndex:(NSUInteger)i];
+    [list insertObject:q atIndex:0];
+    while (list.count > 20) [list removeLastObject];
+    [DEF setObject:list forKey:@"searchHistory"];
+}
+
++ (void)clearSearchHistory { [DEF setObject:@[] forKey:@"searchHistory"]; }
 + (BOOL)darkTheme { return [DEF boolForKey:@"darkTheme"]; }
 + (void)setDarkTheme:(BOOL)value { [DEF setBool:value forKey:@"darkTheme"]; }
 + (BOOL)verifyTLS { return [DEF boolForKey:@"verifyTLS"]; }

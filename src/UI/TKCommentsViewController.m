@@ -1,7 +1,9 @@
 #import "TKCommentsViewController.h"
+#import "TKLinkRouter.h"
 #import "TKTikTok.h"
 #import "TKHTTP.h"
 #import "TKModels.h"
+#import "TKImageLoader.h"
 #import "TKTheme.h"
 #import "TKUtils.h"
 #import "TKCommon.h"
@@ -9,6 +11,9 @@
 // A comment shows at most this many lines (some are walls of emoji that would fill the whole sheet)
 static const NSInteger TKCommentMaxLines = 8;
 static const CGFloat TKReplyIndent = 30;
+static const CGFloat TKAvatarLeft = 12;
+static const CGFloat TKTextLeft = 54;          // the text column (a reply: + TKReplyIndent)
+static const CGFloat TKLikesWidth = 46;        // the heart column on the right
 
 // Rows are measured with a label set up exactly like the cell's, so the height matches what gets drawn
 // (emoji lines are taller than the body font's).
@@ -23,9 +28,89 @@ static UILabel *TKCommentSizingLabel(void)
     return label;
 }
 
+#pragma mark - Cell
+
+@interface TKCommentCell : UITableViewCell
+@property (nonatomic, strong) TKImageView *avatar;
+@property (nonatomic, strong) UIButton *avatarButton;
+@property (nonatomic, strong) UILabel *nameLabel;
+@property (nonatomic, strong) UIButton *nameButton;
+@property (nonatomic, strong) UILabel *bodyLabel;
+@property (nonatomic, strong) UILabel *metaLabel;
+@property (nonatomic, strong) UILabel *heartLabel;
+@property (nonatomic, strong) UILabel *likesLabel;
+@property (nonatomic) BOOL reply;
+@end
+
+@implementation TKCommentCell
+
+- (UILabel *)label:(UIFont *)font color:(UIColor *)color
+{
+    UILabel *l = [[UILabel alloc] initWithFrame:CGRectZero];
+    l.font = font;
+    l.textColor = color;
+    l.backgroundColor = [UIColor clearColor];
+    [self.contentView addSubview:l];
+    return l;
+}
+
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier
+{
+    if ((self = [super initWithStyle:style reuseIdentifier:reuseIdentifier])) {
+        TKTheme *theme = [TKTheme shared];
+        [theme styleCell:self];
+        self.selectionStyle = UITableViewCellSelectionStyleNone;
+        _avatar = [[TKImageView alloc] initWithFrame:CGRectZero];
+        _avatar.contentMode = UIViewContentModeScaleAspectFill;
+        _avatar.clipsToBounds = YES;
+        _avatar.maxPixels = 96;
+        _avatar.backgroundColor = [UIColor colorWithWhite:0.3 alpha:1];
+        [self.contentView addSubview:_avatar];
+        _nameLabel = [self label:[UIFont boldSystemFontOfSize:12] color:[theme secondaryTextColor]];
+        _bodyLabel = [self label:[theme bodyFont] color:[theme primaryTextColor]];
+        _bodyLabel.numberOfLines = TKCommentMaxLines;
+        _bodyLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+        _metaLabel = [self label:[UIFont systemFontOfSize:11] color:[theme secondaryTextColor]];
+        _heartLabel = [self label:[UIFont systemFontOfSize:15] color:[theme secondaryTextColor]];
+        _heartLabel.text = @"♥";
+        _heartLabel.textAlignment = NSTextAlignmentCenter;
+        _likesLabel = [self label:[UIFont systemFontOfSize:11] color:[theme secondaryTextColor]];
+        _likesLabel.textAlignment = NSTextAlignmentCenter;
+        _avatarButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        _nameButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        [self.contentView addSubview:_avatarButton];
+        [self.contentView addSubview:_nameButton];
+    }
+    return self;
+}
+
+- (void)layoutSubviews
+{
+    [super layoutSubviews];
+    CGFloat w = self.contentView.bounds.size.width, indent = self.reply ? TKReplyIndent : 0;
+    CGFloat side = self.reply ? 24 : 34;
+    self.avatar.frame = CGRectMake(TKAvatarLeft + indent, 10, side, side);
+    self.avatar.layer.cornerRadius = side / 2;
+    self.avatarButton.frame = CGRectInset(self.avatar.frame, -6, -6);
+    CGFloat x = TKTextLeft + indent - (self.reply ? 8 : 0), textW = w - x - TKLikesWidth;
+    self.nameLabel.frame = CGRectMake(x, 8, textW, 16);
+    CGSize nameSize = [self.nameLabel.text ?: @"" sizeWithFont:self.nameLabel.font];
+    self.nameButton.frame = CGRectMake(x - 4, 2, MIN(textW, ceilf(nameSize.width)) + 8, 26);
+    CGSize s = [self.bodyLabel sizeThatFits:CGSizeMake(textW, CGFLOAT_MAX)];
+    self.bodyLabel.frame = CGRectMake(x, 25, textW, ceilf(s.height));
+    self.metaLabel.frame = CGRectMake(x, CGRectGetMaxY(self.bodyLabel.frame) + 3, textW, 14);
+    self.heartLabel.frame = CGRectMake(w - TKLikesWidth, 12, TKLikesWidth, 18);
+    self.likesLabel.frame = CGRectMake(w - TKLikesWidth, 30, TKLikesWidth, 14);
+}
+
+@end
+
+#pragma mark - Controller
+
 @interface TKCommentsViewController ()
 @property (nonatomic, strong) TKVideo *video;
 @property (nonatomic) BOOL panel;
+@property (nonatomic) BOOL inSheet;
 @property (nonatomic, strong) NSArray *comments;               // top level
 @property (nonatomic, strong) NSMutableDictionary *replies;    // comment id -> NSArray of replies
 @property (nonatomic, strong) NSMutableSet *loadingReplies;    // comment ids
@@ -47,18 +132,26 @@ static UILabel *TKCommentSizingLabel(void)
     return self;
 }
 
+- (instancetype)initForBottomSheetWithVideo:(TKVideo *)video
+{
+    if ((self = [self initWithVideo:video])) _inSheet = YES;
+    return self;
+}
+
 - (instancetype)initAsPanel
 {
     if ((self = [self initWithVideo:nil])) _panel = YES;
     return self;
 }
 
+- (void)dealloc { [self.task cancel]; }
+
 - (void)viewDidLoad
 {
     [super viewDidLoad];
     self.title = L(@"Comments");
     [[TKTheme shared] applyToTableView:self.tableView];
-    if (!self.panel)
+    if (!self.panel && !self.inSheet)
         self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(done)];
     [self load];
 }
@@ -125,46 +218,65 @@ static UILabel *TKCommentSizingLabel(void)
     }];
 }
 
+// "@handle" when that is all there is, else the name they chose
+- (NSString *)nameOf:(TKComment *)c
+{
+    NSString *name = c.authorName.length ? [TKUtils displayText:c.authorName] : @"";
+    return name.length ? name : [@"@" stringByAppendingString:c.author ?: @""];
+}
+
 #pragma mark - Table
 
 - (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s { return self.rows.count ? (NSInteger)self.rows.count : 1; }
 
 - (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip
 {
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
-    [[TKTheme shared] styleCell:cell];
-    cell.selectionStyle = UITableViewCellSelectionStyleNone;
-    if (!self.rows.count) {
-        cell.textLabel.text = @"";
-        cell.detailTextLabel.text = self.status;
-        cell.detailTextLabel.textColor = [[TKTheme shared] secondaryTextColor];
-        return cell;
-    }
-    id row = self.rows[(NSUInteger)ip.row];
-    if ([row isKindOfClass:[NSDictionary class]]) {
-        TKComment *parent = row[@"more"];
+    if (!self.rows.count || [self.rows[(NSUInteger)ip.row] isKindOfClass:[NSDictionary class]]) {
+        UITableViewCell *cell = [t dequeueReusableCellWithIdentifier:@"note"];
+        if (!cell) {
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"note"];
+            [[TKTheme shared] styleCell:cell];
+        }
+        cell.indentationLevel = 0;
+        if (!self.rows.count) {
+            cell.textLabel.text = self.status;
+            cell.textLabel.font = [[TKTheme shared] smallFont];
+            cell.textLabel.textColor = [[TKTheme shared] secondaryTextColor];
+            cell.textLabel.textAlignment = NSTextAlignmentCenter;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            return cell;
+        }
+        TKComment *parent = self.rows[(NSUInteger)ip.row][@"more"];
         BOOL busy = [self.loadingReplies containsObject:parent.commentId];
-        cell.textLabel.text = busy ? L(@"Loading replies…") : [NSString stringWithFormat:L(@"View replies (%@)"), [TKUtils formatCount:parent.replyCount]];
+        cell.textLabel.text = busy ? L(@"Loading replies…") : [NSString stringWithFormat:@"— %@", [NSString stringWithFormat:L(@"View replies (%@)"), [TKUtils formatCount:parent.replyCount]]];
         cell.textLabel.font = [[TKTheme shared] tinyBoldFont];
-        cell.textLabel.textColor = [[TKTheme shared] linkColor];
-        cell.indentationWidth = TKReplyIndent;
+        cell.textLabel.textColor = [[TKTheme shared] secondaryTextColor];
+        cell.textLabel.textAlignment = NSTextAlignmentLeft;
+        cell.indentationWidth = TKTextLeft - 10;
         cell.indentationLevel = 1;
         cell.selectionStyle = UITableViewCellSelectionStyleGray;
         return cell;
     }
-    TKComment *c = row;
-    NSMutableString *head = [NSMutableString stringWithFormat:@"@%@", c.author];
-    if (c.likes) [head appendFormat:@"  ♥ %@", [TKUtils formatCount:c.likes]];
-    if (c.pinned) [head appendFormat:@"  ·  %@", L(@"Pinned")];
-    cell.textLabel.text = head;
-    cell.textLabel.font = [[TKTheme shared] tinyBoldFont];
-    cell.textLabel.textColor = [[TKTheme shared] secondaryTextColor];
-    cell.detailTextLabel.text = [TKUtils displayText:c.text];
-    cell.detailTextLabel.numberOfLines = TKCommentMaxLines;
-    cell.detailTextLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-    cell.detailTextLabel.font = c.isReply ? [[TKTheme shared] smallFont] : [[TKTheme shared] bodyFont];
-    cell.detailTextLabel.textColor = [[TKTheme shared] primaryTextColor];
-    if (c.isReply) { cell.indentationWidth = TKReplyIndent; cell.indentationLevel = 1; }
+    TKCommentCell *cell = [t dequeueReusableCellWithIdentifier:@"comment"];
+    if (!cell) {
+        cell = [[TKCommentCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"comment"];
+        [cell.avatarButton addTarget:self action:@selector(openAuthor:) forControlEvents:UIControlEventTouchUpInside];
+        [cell.nameButton addTarget:self action:@selector(openAuthor:) forControlEvents:UIControlEventTouchUpInside];
+    }
+    TKComment *c = self.rows[(NSUInteger)ip.row];
+    cell.reply = c.isReply;
+    [cell.avatar setImageURL:c.avatarURL placeholder:nil];
+    NSMutableString *name = [[self nameOf:c] mutableCopy];
+    if (c.author.length && [c.author caseInsensitiveCompare:self.video.author ?: @""] == NSOrderedSame) [name appendFormat:@"  ·  %@", L(@"Creator")];
+    if (c.pinned) [name appendFormat:@"  ·  %@", L(@"Pinned")];
+    cell.nameLabel.text = name;
+    cell.bodyLabel.text = [TKUtils displayText:c.text];
+    cell.bodyLabel.font = c.isReply ? [[TKTheme shared] smallFont] : [[TKTheme shared] bodyFont];
+    cell.metaLabel.text = c.createdAt > 0 ? [TKUtils formatRelativeDate:[NSDate dateWithTimeIntervalSince1970:c.createdAt]] : @"";
+    cell.likesLabel.text = c.likes ? [TKUtils formatCount:c.likes] : @"";
+    cell.avatarButton.tag = ip.row;
+    cell.nameButton.tag = ip.row;
+    [cell setNeedsLayout];
     return cell;
 }
 
@@ -172,14 +284,14 @@ static UILabel *TKCommentSizingLabel(void)
 {
     if (!self.rows.count) return 80;
     id row = self.rows[(NSUInteger)ip.row];
-    if ([row isKindOfClass:[NSDictionary class]]) return 36;
+    if ([row isKindOfClass:[NSDictionary class]]) return 34;
     TKComment *c = row;
     UILabel *sizer = TKCommentSizingLabel();
     sizer.font = c.isReply ? [[TKTheme shared] smallFont] : [[TKTheme shared] bodyFont];
     sizer.text = [TKUtils displayText:c.text];
-    CGFloat width = t.bounds.size.width - 24 - (c.isReply ? TKReplyIndent : 0);
-    CGSize s = [sizer sizeThatFits:CGSizeMake(width, CGFLOAT_MAX)];
-    return MAX(c.isReply ? 44 : 52, ceilf(s.height) + 34);
+    CGFloat x = TKTextLeft + (c.isReply ? TKReplyIndent - 8 : 0);
+    CGSize s = [sizer sizeThatFits:CGSizeMake(t.bounds.size.width - x - TKLikesWidth, CGFLOAT_MAX)];
+    return MAX(c.isReply ? 48 : 58, 25 + ceilf(s.height) + 3 + 14 + 10);
 }
 
 - (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)ip
@@ -188,6 +300,13 @@ static UILabel *TKCommentSizingLabel(void)
     if (!self.rows.count) return;
     id row = self.rows[(NSUInteger)ip.row];
     if ([row isKindOfClass:[NSDictionary class]]) [self loadRepliesOf:row[@"more"]];
+}
+
+- (void)openAuthor:(UIButton *)sender
+{
+    if (sender.tag < 0 || sender.tag >= (NSInteger)self.rows.count) return;
+    id row = self.rows[(NSUInteger)sender.tag];
+    if ([row isKindOfClass:[TKComment class]] && [(TKComment *)row author].length) [TKLinkRouter openProfile:[(TKComment *)row author]];
 }
 
 @end

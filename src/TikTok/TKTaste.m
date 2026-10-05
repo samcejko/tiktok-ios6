@@ -205,6 +205,25 @@ static BOOL TKGenericTag(NSString *tag)
     [self persist];
 }
 
+- (void)seedTopics:(NSArray *)topicIds
+{
+    if (!topicIds.count) return;
+    NSSet *picked = [NSSet setWithArray:topicIds];
+    for (NSNumber *t in [TKTaste topicIds]) {
+        double a, b;
+        [self topic:t.integerValue alpha:&a beta:&b];
+        BOOL yes = [picked containsObject:t];
+        if (yes) a += 4.0; else b += 1.0;                 // as if four videos of it held you, one of each other failed
+        self.topics[[NSString stringWithFormat:@"%ld", (long)t.integerValue]] = @[ @(a), @(b) ];
+        if (yes) {
+            NSString *cat = [NSString stringWithFormat:@"cat:%ld", (long)t.integerValue];
+            self.weights[cat] = @(MIN(TKWeightLimit, [self.weights[cat] doubleValue] + 1.0));
+        }
+    }
+    [self persist];
+    TKLog(@"taste: topics picked by hand: %@", [[topicIds valueForKey:@"stringValue"] componentsJoinedByString:@","]);
+}
+
 // Old lessons fade so a changed taste shows through; the faintest weights go, which keeps the model small
 - (void)forgetALittle
 {

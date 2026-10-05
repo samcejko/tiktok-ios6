@@ -7,5 +7,7 @@
 // -initWithVideos:startIndex:title:.
 @interface TKFeedViewController : UIViewController
 - (instancetype)initWithVideos:(NSArray *)videos startIndex:(NSInteger)startIndex title:(NSString *)title;  // fixed list
+// A fixed list that can grow: asked near its end for what follows the `have` videos it has (done(nil): no more)
+@property (nonatomic, copy) void (^loadMore)(NSUInteger have, void (^done)(NSArray *more));
 - (TKVideoCell *)currentCell;      // the page on screen (for the debug commands)
 @end
