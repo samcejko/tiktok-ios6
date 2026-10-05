@@ -3,31 +3,13 @@
 #import "TKTheme.h"
 #import "TKCommon.h"
 
-static const CGFloat TKSheetHeaderHeight = 46;
+static const CGFloat TKSheetBarHeight = 44;
 
-static UIImage *TKSheetCloseImage(UIColor *color)
-{
-    UIGraphicsBeginImageContextWithOptions(CGSizeMake(20, 20), NO, 0);
-    UIBezierPath *p = [UIBezierPath bezierPath];
-    [p moveToPoint:CGPointMake(4, 4)]; [p addLineToPoint:CGPointMake(16, 16)];
-    [p moveToPoint:CGPointMake(16, 4)]; [p addLineToPoint:CGPointMake(4, 16)];
-    p.lineWidth = 2.5;
-    p.lineCapStyle = kCGLineCapRound;
-    [color setStroke];
-    [p stroke];
-    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
-    return image;
-}
-
-@interface TKBottomSheet () <UIGestureRecognizerDelegate>
+@interface TKBottomSheet ()
 @property (nonatomic, strong) UIView *dimView;
 @property (nonatomic, strong) UIView *panel;
-@property (nonatomic, strong) UIView *header;
-@property (nonatomic, strong) UIView *grabber;
-@property (nonatomic, strong) UILabel *titleLabel;
-@property (nonatomic, strong) UIButton *closeButton;
-@property (nonatomic, strong) UIView *rule;
+@property (nonatomic, strong) UINavigationBar *bar;       // the iOS 6 bar: the title and a Close button
+@property (nonatomic, strong) UINavigationItem *barItem;
 @property (nonatomic, strong) UIView *contentView;
 @property (nonatomic, strong) CAShapeLayer *corners;
 @property (nonatomic) BOOL shown;          // up (not coming or going)
@@ -47,47 +29,39 @@ static UIImage *TKSheetCloseImage(UIColor *color)
 
         _dimView = [[UIView alloc] initWithFrame:self.bounds];
         _dimView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        _dimView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.2];
+        _dimView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.25];
         _dimView.alpha = 0;
         [_dimView addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(close)]];
         [self addSubview:_dimView];
 
+        // the panel casts a shadow up onto the video; its top corners are rounded like an iOS 6 sheet
         _panel = [[UIView alloc] initWithFrame:CGRectZero];
-        _panel.backgroundColor = [theme cardColor];
-        _corners = [CAShapeLayer layer];
-        _panel.layer.mask = _corners;
+        _panel.backgroundColor = [UIColor clearColor];
+        _panel.layer.shadowColor = [UIColor blackColor].CGColor;
+        _panel.layer.shadowOpacity = 0.6;
+        _panel.layer.shadowRadius = 6;
+        _panel.layer.shadowOffset = CGSizeMake(0, -2);
         [self addSubview:_panel];
+        UIView *clip = [[UIView alloc] initWithFrame:CGRectZero];
+        clip.tag = 1;
+        clip.backgroundColor = [theme cardColor];
+        _corners = [CAShapeLayer layer];
+        clip.layer.mask = _corners;
+        [_panel addSubview:clip];
 
-        _header = [[UIView alloc] initWithFrame:CGRectZero];
-        _header.backgroundColor = [UIColor clearColor];
-        [_panel addSubview:_header];
-        _grabber = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 36, 4)];
-        _grabber.backgroundColor = [theme separatorColor];
-        _grabber.layer.cornerRadius = 2;
-        [_header addSubview:_grabber];
-        _titleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-        _titleLabel.font = [UIFont boldSystemFontOfSize:14];
-        _titleLabel.textColor = [theme primaryTextColor];
-        _titleLabel.textAlignment = NSTextAlignmentCenter;
-        _titleLabel.backgroundColor = [UIColor clearColor];
-        [_header addSubview:_titleLabel];
-        _closeButton = [UIButton buttonWithType:UIButtonTypeCustom];
-        [_closeButton setImage:TKSheetCloseImage([theme secondaryTextColor]) forState:UIControlStateNormal];
-        _closeButton.accessibilityLabel = L(@"Close");
-        [_closeButton addTarget:self action:@selector(close) forControlEvents:UIControlEventTouchUpInside];
-        [_header addSubview:_closeButton];
-        _rule = [[UIView alloc] initWithFrame:CGRectZero];
-        _rule.backgroundColor = [theme separatorColor];
-        [_panel addSubview:_rule];
+        _bar = [[UINavigationBar alloc] initWithFrame:CGRectZero];
+        [theme applyToNavigationBar:_bar];
+        _barItem = [[UINavigationItem alloc] initWithTitle:@""];
+        _barItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:L(@"Close") style:UIBarButtonItemStyleBordered target:self action:@selector(close)];
+        [_bar pushNavigationItem:_barItem animated:NO];
+        [clip addSubview:_bar];
 
         _contentView = [[UIView alloc] initWithFrame:CGRectZero];
         _contentView.backgroundColor = [theme cardColor];
         _contentView.clipsToBounds = YES;
-        [_panel addSubview:_contentView];
+        [clip addSubview:_contentView];
 
-        UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panned:)];
-        pan.delegate = self;
-        [_header addGestureRecognizer:pan];
+        [_bar addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panned:)]];
     }
     return self;
 }
@@ -95,7 +69,7 @@ static UIImage *TKSheetCloseImage(UIColor *color)
 - (void)setTitle:(NSString *)title
 {
     _title = [title copy];
-    self.titleLabel.text = title;
+    self.barItem.title = title;
 }
 
 - (CGFloat)panelHeight { return floorf(self.bounds.size.height * self.heightFraction); }
@@ -106,16 +80,19 @@ static UIImage *TKSheetCloseImage(UIColor *color)
     [super layoutSubviews];
     CGSize s = self.bounds.size;
     CGFloat h = [self panelHeight];
-    if (!self.dragging) self.panel.frame = CGRectMake(0, self.shown ? [self restY] : s.height, s.width, h);
-    else self.panel.frame = CGRectMake(0, self.panel.frame.origin.y, s.width, h);
-    self.header.frame = CGRectMake(0, 0, s.width, TKSheetHeaderHeight);
-    self.grabber.center = CGPointMake(s.width / 2, 8);
-    self.titleLabel.frame = CGRectMake(50, 14, s.width - 100, 22);
-    self.closeButton.frame = CGRectMake(s.width - 46, 2, 44, 42);
-    self.rule.frame = CGRectMake(0, TKSheetHeaderHeight - 1, s.width, 1);
-    self.contentView.frame = CGRectMake(0, TKSheetHeaderHeight, s.width, h - TKSheetHeaderHeight);
-    self.corners.path = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, s.width, h) byRoundingCorners:UIRectCornerTopLeft | UIRectCornerTopRight
-                                                    cornerRadii:CGSizeMake(10, 10)].CGPath;
+    CGFloat y = self.dragging ? self.panel.frame.origin.y : (self.shown ? [self restY] : s.height);
+    self.panel.frame = CGRectMake(0, y, s.width, h);
+    UIView *clip = [self.panel viewWithTag:1];
+    clip.frame = self.panel.bounds;
+    self.bar.frame = CGRectMake(0, 0, s.width, TKSheetBarHeight);
+    self.contentView.frame = CGRectMake(0, TKSheetBarHeight, s.width, h - TKSheetBarHeight);
+    UIBezierPath *shape = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, s.width, h) byRoundingCorners:UIRectCornerTopLeft | UIRectCornerTopRight
+                                                      cornerRadii:CGSizeMake(8, 8)];
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    self.corners.path = shape.CGPath;
+    self.panel.layer.shadowPath = shape.CGPath;
+    [CATransaction commit];
 }
 
 - (void)showInView:(UIView *)host
@@ -147,6 +124,7 @@ static UIImage *TKSheetCloseImage(UIColor *color)
     }];
 }
 
+// Drag the bar down to put the sheet away
 - (void)panned:(UIPanGestureRecognizer *)g
 {
     if (self.closing) return;

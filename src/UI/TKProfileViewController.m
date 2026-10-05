@@ -8,35 +8,37 @@
 #import "TKUtils.h"
 #import "TKCommon.h"
 
-static const CGFloat TKAvatarSize = 96;
+static const CGFloat TKAvatarSize = 100;
+static const CGFloat TKStatsHeight = 52;
 
 #pragma mark - Header
 
-@interface TKProfileHeaderView : UIView
+// iOS 6: the avatar in a white frame on a grained surface, the counts on a glossy card, glossy buttons
+@interface TKProfileHeaderView : TKPageHeaderView
 @property (nonatomic, strong) TKProfile *profile;
-@property (nonatomic, strong) TKImageView *avatar;
+@property (nonatomic, strong) TKFramedImageView *avatar;
 @property (nonatomic, strong) UILabel *handleLabel;
 @property (nonatomic, strong) UILabel *nameLabel;
+@property (nonatomic, strong) UIImageView *statsCard;
 @property (nonatomic, strong) NSArray *valueLabels;       // following, followers, likes
 @property (nonatomic, strong) NSArray *captionLabels;
-@property (nonatomic, strong) NSArray *dividers;
+@property (nonatomic, strong) NSArray *dividers;          // etched: a dark and a light line each
 @property (nonatomic, strong) UIButton *liveButton;
 @property (nonatomic, strong) UILabel *bioLabel;
 @property (nonatomic, strong) UIButton *linkButton;
-@property (nonatomic, strong) UIView *rule;
 - (CGFloat)layoutForWidth:(CGFloat)width apply:(BOOL)apply;
 @end
 
 @implementation TKProfileHeaderView
 
-- (UILabel *)label:(UIFont *)font color:(UIColor *)color
+- (UILabel *)label:(UIFont *)font color:(UIColor *)color in:(UIView *)parent
 {
     UILabel *l = [[UILabel alloc] initWithFrame:CGRectZero];
     l.font = font;
     l.textColor = color;
     l.textAlignment = NSTextAlignmentCenter;
     l.backgroundColor = [UIColor clearColor];
-    [self addSubview:l];
+    [parent addSubview:l];
     return l;
 }
 
@@ -44,51 +46,59 @@ static const CGFloat TKAvatarSize = 96;
 {
     if ((self = [super initWithFrame:frame])) {
         TKTheme *theme = [TKTheme shared];
-        self.backgroundColor = [theme backgroundColor];
-        _avatar = [[TKImageView alloc] initWithFrame:CGRectMake(0, 0, TKAvatarSize, TKAvatarSize)];
-        _avatar.contentMode = UIViewContentModeScaleAspectFill;
-        _avatar.clipsToBounds = YES;
-        _avatar.layer.cornerRadius = TKAvatarSize / 2;
-        _avatar.backgroundColor = [UIColor colorWithWhite:0.2 alpha:1];
-        _avatar.maxPixels = 300;
+        _avatar = [[TKFramedImageView alloc] initWithSize:TKAvatarSize round:YES];
         [self addSubview:_avatar];
-        _handleLabel = [self label:[UIFont boldSystemFontOfSize:18] color:[theme primaryTextColor]];
-        _nameLabel = [self label:[UIFont systemFontOfSize:14] color:[theme secondaryTextColor]];
+        _handleLabel = [self label:[UIFont boldSystemFontOfSize:19] color:[theme embossTextColor] in:self];
+        [theme embossLabel:_handleLabel];
+        _nameLabel = [self label:[UIFont systemFontOfSize:14] color:[theme secondaryTextColor] in:self];
+        [theme embossLabel:_nameLabel];
+
+        _statsCard = [[UIImageView alloc] initWithImage:[theme cardBackgroundImage]];
+        [self addSubview:_statsCard];
         NSMutableArray *values = [NSMutableArray array], *captions = [NSMutableArray array], *dividers = [NSMutableArray array];
         for (NSString *caption in @[ L(@"Following"), L(@"Followers"), L(@"Likes") ]) {
-            [values addObject:[self label:[UIFont boldSystemFontOfSize:18] color:[theme primaryTextColor]]];
-            UILabel *c = [self label:[UIFont systemFontOfSize:12] color:[theme secondaryTextColor]];
-            c.text = caption;
+            UILabel *v = [self label:[UIFont boldSystemFontOfSize:17] color:[theme primaryTextColor] in:_statsCard];
+            [theme embossLabel:v];
+            [values addObject:v];
+            UILabel *c = [self label:[UIFont boldSystemFontOfSize:11] color:[theme secondaryTextColor] in:_statsCard];
+            c.text = [caption uppercaseString];
+            [theme embossLabel:c];
             [captions addObject:c];
         }
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < 4; i++) {
             UIView *d = [[UIView alloc] initWithFrame:CGRectZero];
-            d.backgroundColor = [theme separatorColor];
-            [self addSubview:d];
+            d.backgroundColor = (i % 2 == 0) ? [UIColor colorWithWhite:0 alpha:theme.isDark ? 0.55 : 0.18]
+                                             : [UIColor colorWithWhite:1 alpha:theme.isDark ? 0.07 : 0.8];
+            [_statsCard addSubview:d];
             [dividers addObject:d];
         }
         _valueLabels = values;
         _captionLabels = captions;
         _dividers = dividers;
+
         _liveButton = [UIButton buttonWithType:UIButtonTypeCustom];
-        _liveButton.backgroundColor = [theme liveColor];
-        _liveButton.layer.cornerRadius = 6;
         _liveButton.titleLabel.font = [UIFont boldSystemFontOfSize:15];
+        [_liveButton setBackgroundImage:[theme redButtonImageHighlighted:NO] forState:UIControlStateNormal];
+        [_liveButton setBackgroundImage:[theme redButtonImageHighlighted:YES] forState:UIControlStateHighlighted];
         [_liveButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-        [_liveButton setTitleColor:[UIColor colorWithWhite:1 alpha:0.6] forState:UIControlStateHighlighted];
+        [_liveButton setTitleShadowColor:[UIColor colorWithWhite:0 alpha:0.45] forState:UIControlStateNormal];
+        _liveButton.titleLabel.shadowOffset = CGSizeMake(0, -1);
         [_liveButton setTitle:[@"●  " stringByAppendingString:L(@"Watch live")] forState:UIControlStateNormal];
         [self addSubview:_liveButton];
-        _bioLabel = [self label:[UIFont systemFontOfSize:14] color:[theme primaryTextColor]];
+
+        _bioLabel = [self label:[UIFont systemFontOfSize:14] color:[theme embossTextColor] in:self];
         _bioLabel.numberOfLines = 6;
+        [theme embossLabel:_bioLabel];
+
         _linkButton = [UIButton buttonWithType:UIButtonTypeCustom];
-        _linkButton.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+        _linkButton.titleLabel.font = [UIFont boldSystemFontOfSize:13];
         _linkButton.titleLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
-        [_linkButton setTitleColor:[theme linkColor] forState:UIControlStateNormal];
-        [_linkButton setTitleColor:[theme secondaryTextColor] forState:UIControlStateHighlighted];
+        _linkButton.contentEdgeInsets = UIEdgeInsetsMake(0, 12, 0, 12);
+        [_linkButton setBackgroundImage:[theme buttonImageHighlighted:NO] forState:UIControlStateNormal];
+        [_linkButton setBackgroundImage:[theme buttonImageHighlighted:YES] forState:UIControlStateHighlighted];
+        [_linkButton setTitleColor:[theme embossTextColor] forState:UIControlStateNormal];
+        [theme embossButton:_linkButton];
         [self addSubview:_linkButton];
-        _rule = [[UIView alloc] initWithFrame:CGRectZero];
-        _rule.backgroundColor = [theme separatorColor];
-        [self addSubview:_rule];
     }
     return self;
 }
@@ -96,9 +106,9 @@ static const CGFloat TKAvatarSize = 96;
 - (void)setProfile:(TKProfile *)p
 {
     _profile = p;
-    [self.avatar setImageURL:p.avatarURL placeholder:nil];
-    self.avatar.layer.borderColor = [[TKTheme shared] liveColor].CGColor;
-    self.avatar.layer.borderWidth = p.liveRoom.length ? 3 : 0;
+    TKImageView *picture = self.avatar.imageView;
+    [picture setImageURL:p.avatarURL placeholder:nil];
+    self.avatar.backgroundColor = p.liveRoom.length ? [[TKTheme shared] liveColor] : [UIColor whiteColor];   // (a red frame: live)
     NSString *handle = [@"@" stringByAppendingString:p.handle ?: @""];
     self.handleLabel.text = p.verified ? [handle stringByAppendingString:@" ✓"] : handle;
     self.nameLabel.text = p.name.length ? [TKUtils displayText:p.name] : @"";
@@ -116,40 +126,46 @@ static const CGFloat TKAvatarSize = 96;
 // The same arithmetic measures and places, so the grid's header is exactly as tall as what is drawn
 - (CGFloat)layoutForWidth:(CGFloat)w apply:(BOOL)apply
 {
-    CGFloat y = 18;
+    CGFloat y = 20;
     if (apply) self.avatar.frame = CGRectMake(floorf((w - TKAvatarSize) / 2), y, TKAvatarSize, TKAvatarSize);
     y += TKAvatarSize + 12;
-    if (apply) self.handleLabel.frame = CGRectMake(16, y, w - 32, 22);
-    y += 24;
+    if (apply) self.handleLabel.frame = CGRectMake(16, y, w - 32, 24);
+    y += 25;
     if (self.nameLabel.text.length) {
         if (apply) self.nameLabel.frame = CGRectMake(16, y, w - 32, 18);
         y += 20;
     }
     y += 12;
-    CGFloat colW = MIN(110, floorf((w - 32) / 3)), left = floorf((w - colW * 3) / 2);
-    for (NSUInteger i = 0; i < 3 && apply; i++) {
-        [self.valueLabels[i] setFrame:CGRectMake(left + colW * i, y, colW, 22)];
-        [self.captionLabels[i] setFrame:CGRectMake(left + colW * i, y + 22, colW, 16)];
-        if (i < 2) [self.dividers[i] setFrame:CGRectMake(left + colW * (i + 1), y + 10, 1, 18)];
+    CGFloat cardW = MIN(w - 32, 360), colW = floorf(cardW / 3);
+    if (apply) {
+        self.statsCard.frame = CGRectMake(floorf((w - cardW) / 2), y, cardW, TKStatsHeight);
+        for (NSUInteger i = 0; i < 3; i++) {
+            [self.valueLabels[i] setFrame:CGRectMake(colW * i, 8, colW, 21)];
+            [self.captionLabels[i] setFrame:CGRectMake(colW * i, 29, colW, 14)];
+        }
+        for (NSUInteger i = 0; i < 2; i++) {
+            [self.dividers[i * 2] setFrame:CGRectMake(colW * (i + 1), 9, 1, TKStatsHeight - 18)];
+            [self.dividers[i * 2 + 1] setFrame:CGRectMake(colW * (i + 1) + 1, 9, 1, TKStatsHeight - 18)];
+        }
     }
-    y += 38 + 14;
+    y += TKStatsHeight + 14;
     if (!self.liveButton.hidden) {
-        if (apply) self.liveButton.frame = CGRectMake(floorf((w - 200) / 2), y, 200, 36);
-        y += 36 + 12;
+        if (apply) self.liveButton.frame = CGRectMake(floorf((w - 220) / 2), y, 220, 38);
+        y += 38 + 12;
     }
     if (self.bioLabel.text.length) {
-        CGSize s = [self.bioLabel.text sizeWithFont:self.bioLabel.font constrainedToSize:CGSizeMake(MIN(w - 40, 520), 6 * 18)
-                                      lineBreakMode:NSLineBreakByWordWrapping];
-        if (apply) self.bioLabel.frame = CGRectMake(floorf((w - MIN(w - 40, 520)) / 2), y, MIN(w - 40, 520), ceilf(s.height));
-        y += ceilf(s.height) + 8;
+        CGFloat bw = MIN(w - 40, 520);
+        CGSize s = [self.bioLabel.text sizeWithFont:self.bioLabel.font constrainedToSize:CGSizeMake(bw, 6 * 18) lineBreakMode:NSLineBreakByWordWrapping];
+        if (apply) self.bioLabel.frame = CGRectMake(floorf((w - bw) / 2), y, bw, ceilf(s.height));
+        y += ceilf(s.height) + 10;
     }
     if (!self.linkButton.hidden) {
-        if (apply) self.linkButton.frame = CGRectMake(20, y, w - 40, 24);
-        y += 24 + 6;
+        CGSize t = [[self.linkButton titleForState:UIControlStateNormal] ?: @"" sizeWithFont:self.linkButton.titleLabel.font];
+        CGFloat lw = MIN(w - 40, ceilf(t.width) + 26);
+        if (apply) self.linkButton.frame = CGRectMake(floorf((w - lw) / 2), y, lw, 30);
+        y += 30 + 8;
     }
-    y += 8;
-    if (apply) self.rule.frame = CGRectMake(0, y - 1, w, 1);
-    return y;
+    return y + 10;
 }
 
 - (void)layoutSubviews

@@ -299,6 +299,123 @@ static UIImage *TKDrawImage(CGSize size, void (^draw)(CGContextRef ctx))
     }];
 }
 
+#pragma mark - Pages
+
+- (UIImage *)pageBackgroundImage
+{
+    return [self cachedImage:@"page-bg" builder:^UIImage *{
+        UIImage *image = TKDrawImage(CGSizeMake(4, 512), ^(CGContextRef ctx) {
+            if (self.dark) TKDrawVerticalGradient(ctx, CGRectMake(0, 0, 4, 512), RGB(52, 53, 59), RGB(17, 17, 19));
+            else TKDrawVerticalGradient(ctx, CGRectMake(0, 0, 4, 512), RGB(236, 238, 243), RGB(201, 205, 214));
+        });
+        return [image resizableImageWithCapInsets:UIEdgeInsetsMake(0, 1, 0, 1) resizingMode:UIImageResizingModeStretch];
+    }];
+}
+
+// Fine grain, the same every time (a fixed seed), light and dark specks a few percent strong
+- (UIColor *)grainColor
+{
+    UIImage *grain = [self cachedImage:@"grain" builder:^UIImage *{
+        return TKDrawImage(CGSizeMake(96, 96), ^(CGContextRef ctx) {
+            uint32_t seed = 0x9e3779b9u;
+            for (int i = 0; i < 2600; i++) {
+                seed = seed * 1664525u + 1013904223u;
+                CGFloat x = (seed >> 8) % 96;
+                seed = seed * 1664525u + 1013904223u;
+                CGFloat y = (seed >> 8) % 96;
+                seed = seed * 1664525u + 1013904223u;
+                BOOL light = (seed >> 9) & 1;
+                CGFloat alpha = 0.025 + ((seed >> 12) % 100) / 2500.0;
+                CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:light ? 1 : 0 alpha:alpha].CGColor);
+                CGContextFillRect(ctx, CGRectMake(x, y, 1, 1));
+            }
+        });
+    }];
+    return [UIColor colorWithPatternImage:grain];
+}
+
+// A capsule of an exact height (stretchable sideways): glossy grey, or the accent colour when chosen
+static UIImage *TKCapsuleImage(UIColor *top, UIColor *bottom, UIColor *stroke, CGFloat height)
+{
+    CGFloat r = floorf(height / 2), w = r * 2 + 2;
+    CGRect rect = CGRectMake(0, 0, w, height);
+    UIGraphicsBeginImageContextWithOptions(rect.size, NO, 0);
+    CGContextRef ctx = UIGraphicsGetCurrentContext();
+    UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:CGRectInset(rect, 0.5, 0.5) cornerRadius:r - 0.5];
+    CGContextSaveGState(ctx);
+    [path addClip];
+    TKDrawVerticalGradient(ctx, rect, top, bottom);
+    CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:1 alpha:0.16].CGColor);    // the shine of the top half
+    CGContextFillRect(ctx, CGRectMake(0, 0, w, floorf(height / 2)));
+    CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:1 alpha:0.35].CGColor);    // and its bright top edge
+    CGContextFillRect(ctx, CGRectMake(0, 1, w, 1));
+    CGContextRestoreGState(ctx);
+    [stroke setStroke];
+    path.lineWidth = 1;
+    [path stroke];
+    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return [image resizableImageWithCapInsets:UIEdgeInsetsMake(0, r, 0, r) resizingMode:UIImageResizingModeStretch];
+}
+
+- (UIImage *)capsuleImageSelected:(BOOL)selected highlighted:(BOOL)highlighted height:(CGFloat)height
+{
+    NSString *key = [NSString stringWithFormat:@"capsule-%d-%d-%.0f", (int)selected, (int)highlighted, height];
+    return [self cachedImage:key builder:^UIImage *{
+        if (selected) {
+            if (highlighted) return TKCapsuleImage(RGB(220, 60, 90), RGB(160, 14, 46), RGB(100, 8, 30), height);
+            return TKCapsuleImage(RGB(255, 98, 126), RGB(206, 24, 62), RGB(128, 12, 40), height);
+        }
+        if (self.dark) {
+            if (highlighted) return TKCapsuleImage(RGB(62, 62, 68), RGB(36, 36, 40), RGB(12, 12, 14), height);
+            return TKCapsuleImage(RGB(88, 88, 95), RGB(46, 46, 51), RGB(12, 12, 14), height);
+        }
+        if (highlighted) return TKCapsuleImage(RGB(208, 212, 222), RGB(180, 185, 197), RGB(130, 134, 146), height);
+        return TKCapsuleImage(RGB(255, 255, 255), RGB(220, 223, 230), RGB(150, 154, 166), height);
+    }];
+}
+
+- (UIImage *)badgeImageWithHeight:(CGFloat)height
+{
+    return [self cachedImage:[NSString stringWithFormat:@"badge-%.0f", height] builder:^UIImage *{
+        return TKCapsuleImage([UIColor colorWithWhite:0.2 alpha:0.72], [UIColor colorWithWhite:0 alpha:0.8], [UIColor colorWithWhite:0 alpha:0.55], height);
+    }];
+}
+
+- (UIImage *)roundButtonImageWithSize:(CGFloat)size
+{
+    return [self cachedImage:[NSString stringWithFormat:@"round-%.0f", size] builder:^UIImage *{
+        return TKDrawImage(CGSizeMake(size, size), ^(CGContextRef ctx) {
+            CGRect all = CGRectMake(0, 0, size, size);
+            UIBezierPath *disc = [UIBezierPath bezierPathWithOvalInRect:CGRectInset(all, 1, 1)];
+            CGContextSaveGState(ctx);
+            [disc addClip];
+            TKDrawVerticalGradient(ctx, all, [UIColor colorWithWhite:0.32 alpha:0.85], [UIColor colorWithWhite:0.02 alpha:0.85]);
+            CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:1 alpha:0.14].CGColor);
+            CGContextFillEllipseInRect(ctx, CGRectMake(size * 0.08, -size * 0.38, size * 0.84, size * 0.82));
+            CGContextRestoreGState(ctx);
+            [[UIColor colorWithWhite:1 alpha:0.75] setStroke];
+            disc.lineWidth = 1.5;
+            [disc stroke];
+        });
+    }];
+}
+
+- (UIColor *)embossTextColor { return self.dark ? RGB(236, 236, 240) : RGB(52, 56, 66); }
+
+- (void)embossLabel:(UILabel *)label
+{
+    label.shadowColor = self.dark ? [UIColor colorWithWhite:0 alpha:0.85] : [UIColor colorWithWhite:1 alpha:0.9];
+    label.shadowOffset = self.dark ? CGSizeMake(0, -1) : CGSizeMake(0, 1);
+}
+
+- (void)embossButton:(UIButton *)button
+{
+    [self embossLabel:button.titleLabel];
+    [button setTitleShadowColor:button.titleLabel.shadowColor forState:UIControlStateNormal];
+    button.titleLabel.shadowOffset = button.titleLabel.shadowOffset;
+}
+
 #pragma mark - Icons
 
 // Tab bar icons are alpha masks: UIKit colours them itself

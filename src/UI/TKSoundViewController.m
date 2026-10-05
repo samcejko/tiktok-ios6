@@ -9,15 +9,16 @@
 #import "TKUtils.h"
 #import "TKCommon.h"
 
-static const CGFloat TKCoverSize = 96;
+static const CGFloat TKCoverSize = 100;
+static const CGFloat TKPlaySize = 46;
 
-@interface TKSoundHeaderView : UIView
-@property (nonatomic, strong) TKImageView *cover;
+// iOS 6: the cover in a white frame with a glossy round play button on it, on the grained surface of the pages
+@interface TKSoundHeaderView : TKPageHeaderView
+@property (nonatomic, strong) TKFramedImageView *cover;
 @property (nonatomic, strong) UIButton *playButton;       // over the cover: hear the sound
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UIButton *authorButton;
 @property (nonatomic, strong) UILabel *countsLabel;
-@property (nonatomic, strong) UIView *rule;
 - (void)showSound:(TKSound *)sound;
 - (void)showPlaying:(BOOL)playing;
 - (CGFloat)layoutForWidth:(CGFloat)width apply:(BOOL)apply;
@@ -29,42 +30,35 @@ static const CGFloat TKCoverSize = 96;
 {
     if ((self = [super initWithFrame:frame])) {
         TKTheme *theme = [TKTheme shared];
-        self.backgroundColor = [theme backgroundColor];
-        _cover = [[TKImageView alloc] initWithFrame:CGRectMake(0, 0, TKCoverSize, TKCoverSize)];
-        _cover.contentMode = UIViewContentModeScaleAspectFill;
-        _cover.clipsToBounds = YES;
-        _cover.layer.cornerRadius = 8;
-        _cover.backgroundColor = [UIColor colorWithWhite:0.2 alpha:1];
-        _cover.maxPixels = 300;
+        _cover = [[TKFramedImageView alloc] initWithSize:TKCoverSize round:NO];
         _cover.userInteractionEnabled = NO;
         [self addSubview:_cover];
         _playButton = [UIButton buttonWithType:UIButtonTypeCustom];
         _playButton.accessibilityLabel = L(@"Play");
-        _playButton.layer.shadowOpacity = 0.7;
-        _playButton.layer.shadowRadius = 3;
-        _playButton.layer.shadowOffset = CGSizeMake(0, 1);
+        [_playButton setBackgroundImage:[theme roundButtonImageWithSize:TKPlaySize] forState:UIControlStateNormal];
         [self addSubview:_playButton];
         [self showPlaying:NO];
         _titleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         _titleLabel.font = [UIFont boldSystemFontOfSize:19];
-        _titleLabel.textColor = [theme primaryTextColor];
+        _titleLabel.textColor = [theme embossTextColor];
         _titleLabel.backgroundColor = [UIColor clearColor];
         _titleLabel.numberOfLines = 2;
+        [theme embossLabel:_titleLabel];
         [self addSubview:_titleLabel];
         _authorButton = [UIButton buttonWithType:UIButtonTypeCustom];
-        _authorButton.titleLabel.font = [UIFont systemFontOfSize:15];
+        _authorButton.titleLabel.font = [UIFont boldSystemFontOfSize:15];
         _authorButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-        [_authorButton setTitleColor:[theme secondaryTextColor] forState:UIControlStateNormal];
-        [_authorButton setTitleColor:[theme linkColor] forState:UIControlStateHighlighted];
+        [_authorButton setTitleColor:[theme linkColor] forState:UIControlStateNormal];
+        [_authorButton setTitleColor:[theme secondaryTextColor] forState:UIControlStateHighlighted];
+        [_authorButton setTitleColor:[theme secondaryTextColor] forState:UIControlStateDisabled];
+        [theme embossButton:_authorButton];
         [self addSubview:_authorButton];
         _countsLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         _countsLabel.font = [UIFont systemFontOfSize:14];
         _countsLabel.textColor = [theme secondaryTextColor];
         _countsLabel.backgroundColor = [UIColor clearColor];
+        [theme embossLabel:_countsLabel];
         [self addSubview:_countsLabel];
-        _rule = [[UIView alloc] initWithFrame:CGRectZero];
-        _rule.backgroundColor = [theme separatorColor];
-        [self addSubview:_rule];
     }
     return self;
 }
@@ -72,12 +66,13 @@ static const CGFloat TKCoverSize = 96;
 - (void)showPlaying:(BOOL)playing
 {
     [self.playButton setImage:playing ? [[TKTheme shared] pauseIcon] : [[TKTheme shared] playIcon] forState:UIControlStateNormal];
+    self.playButton.imageEdgeInsets = playing ? UIEdgeInsetsZero : UIEdgeInsetsMake(0, 3, 0, 0);   // (a play sign looks centred a little right)
     self.playButton.accessibilityLabel = playing ? L(@"Pause") : L(@"Play");
 }
 
 - (void)showSound:(TKSound *)s
 {
-    [self.cover setImageURL:s.coverURL placeholder:nil];
+    [(TKImageView *)self.cover.imageView setImageURL:s.coverURL placeholder:nil];
     self.titleLabel.text = s.title.length ? [TKUtils displayText:s.title] : L(@"Sound");
     NSString *author = s.authorHandle.length ? [@"@" stringByAppendingString:s.authorHandle] : (s.author ?: @"");
     [self.authorButton setTitle:[TKUtils displayText:author] forState:UIControlStateNormal];
@@ -93,19 +88,17 @@ static const CGFloat TKCoverSize = 96;
 
 - (CGFloat)layoutForWidth:(CGFloat)w apply:(BOOL)apply
 {
-    CGFloat x = 16 + TKCoverSize + 14, textW = w - x - 16, y = 18;
+    CGFloat x = 18 + TKCoverSize + 16, textW = w - x - 16, y = 20;
     if (apply) {
-        self.cover.frame = CGRectMake(16, y, TKCoverSize, TKCoverSize);
-        self.playButton.frame = self.cover.frame;
+        self.cover.frame = CGRectMake(18, y, TKCoverSize, TKCoverSize);
+        self.playButton.frame = CGRectMake(CGRectGetMidX(self.cover.frame) - TKPlaySize / 2, CGRectGetMidY(self.cover.frame) - TKPlaySize / 2, TKPlaySize, TKPlaySize);
         CGSize t = [self.titleLabel.text ?: @"" sizeWithFont:self.titleLabel.font constrainedToSize:CGSizeMake(textW, 46) lineBreakMode:NSLineBreakByWordWrapping];
         CGFloat th = MAX(24, ceilf(t.height));
-        self.titleLabel.frame = CGRectMake(x, y + 2, textW, th);
-        self.authorButton.frame = CGRectMake(x, y + 4 + th, textW, 24);
-        self.countsLabel.frame = CGRectMake(x, y + 30 + th, textW, 20);
+        self.titleLabel.frame = CGRectMake(x, y + 4, textW, th);
+        self.authorButton.frame = CGRectMake(x, y + 6 + th, textW, 24);
+        self.countsLabel.frame = CGRectMake(x, y + 32 + th, textW, 20);
     }
-    y += TKCoverSize + 16;
-    if (apply) self.rule.frame = CGRectMake(0, y - 1, w, 1);
-    return y;
+    return y + TKCoverSize + 20;
 }
 
 - (void)layoutSubviews

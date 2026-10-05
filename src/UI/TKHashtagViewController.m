@@ -7,13 +7,13 @@
 
 static const CGFloat TKTagTileSize = 84;
 
-@interface TKHashtagHeaderView : UIView
-@property (nonatomic, strong) UIView *tile;
+// iOS 6: a glossy tile with the # pressed into it, on the grained surface of the pages
+@interface TKHashtagHeaderView : TKPageHeaderView
+@property (nonatomic, strong) UIImageView *tile;
 @property (nonatomic, strong) UILabel *hashLabel;
 @property (nonatomic, strong) UILabel *nameLabel;
 @property (nonatomic, strong) UILabel *countsLabel;
 @property (nonatomic, strong) UILabel *descLabel;
-@property (nonatomic, strong) UIView *rule;
 - (void)showHashtag:(TKHashtag *)tag;
 - (CGFloat)layoutForWidth:(CGFloat)width apply:(BOOL)apply;
 @end
@@ -24,27 +24,26 @@ static const CGFloat TKTagTileSize = 84;
 {
     if ((self = [super initWithFrame:frame])) {
         TKTheme *theme = [TKTheme shared];
-        self.backgroundColor = [theme backgroundColor];
-        _tile = [[UIView alloc] initWithFrame:CGRectMake(0, 0, TKTagTileSize, TKTagTileSize)];
-        _tile.backgroundColor = [theme cardColor];
-        _tile.layer.cornerRadius = 14;
-        _tile.layer.borderWidth = 1;
-        _tile.layer.borderColor = [theme separatorColor].CGColor;
+        _tile = [[UIImageView alloc] initWithImage:[theme pillImageWithColor:[theme accentColor]]];
+        _tile.frame = CGRectMake(0, 0, TKTagTileSize, TKTagTileSize);
+        _tile.layer.shadowColor = [UIColor blackColor].CGColor;
+        _tile.layer.shadowOpacity = 0.5;
+        _tile.layer.shadowRadius = 3;
+        _tile.layer.shadowOffset = CGSizeMake(0, 2);
         [self addSubview:_tile];
         _hashLabel = [[UILabel alloc] initWithFrame:_tile.bounds];
         _hashLabel.text = @"#";
-        _hashLabel.font = [UIFont boldSystemFontOfSize:50];
-        _hashLabel.textColor = [theme accentColor];
+        _hashLabel.font = [UIFont boldSystemFontOfSize:52];
+        _hashLabel.textColor = [UIColor whiteColor];
         _hashLabel.textAlignment = NSTextAlignmentCenter;
         _hashLabel.backgroundColor = [UIColor clearColor];
+        _hashLabel.shadowColor = [UIColor colorWithRed:0.35 green:0 blue:0.08 alpha:0.7];
+        _hashLabel.shadowOffset = CGSizeMake(0, -1);
         [_tile addSubview:_hashLabel];
-        _nameLabel = [self label:[UIFont boldSystemFontOfSize:20] color:[theme primaryTextColor]];
+        _nameLabel = [self label:[UIFont boldSystemFontOfSize:21] color:[theme embossTextColor]];
         _countsLabel = [self label:[UIFont systemFontOfSize:14] color:[theme secondaryTextColor]];
-        _descLabel = [self label:[UIFont systemFontOfSize:14] color:[theme primaryTextColor]];
+        _descLabel = [self label:[UIFont systemFontOfSize:14] color:[theme embossTextColor]];
         _descLabel.numberOfLines = 4;
-        _rule = [[UIView alloc] initWithFrame:CGRectZero];
-        _rule.backgroundColor = [theme separatorColor];
-        [self addSubview:_rule];
     }
     return self;
 }
@@ -55,6 +54,7 @@ static const CGFloat TKTagTileSize = 84;
     l.font = font;
     l.textColor = color;
     l.backgroundColor = [UIColor clearColor];
+    [[TKTheme shared] embossLabel:l];
     [self addSubview:l];
     return l;
 }
@@ -72,20 +72,19 @@ static const CGFloat TKTagTileSize = 84;
 
 - (CGFloat)layoutForWidth:(CGFloat)w apply:(BOOL)apply
 {
-    CGFloat x = 16 + TKTagTileSize + 14, textW = w - x - 16, y = 18;
+    CGFloat x = 18 + TKTagTileSize + 16, textW = w - x - 16, y = 20;
     if (apply) {
-        self.tile.frame = CGRectMake(16, y, TKTagTileSize, TKTagTileSize);
+        self.tile.frame = CGRectMake(18, y, TKTagTileSize, TKTagTileSize);
         self.nameLabel.frame = CGRectMake(x, y + 14, textW, 26);
         self.countsLabel.frame = CGRectMake(x, y + 44, textW, 20);
     }
-    y += TKTagTileSize + 14;
+    y += TKTagTileSize + 16;
     if (self.descLabel.text.length) {
-        CGSize s = [self.descLabel.text sizeWithFont:self.descLabel.font constrainedToSize:CGSizeMake(w - 32, 4 * 18) lineBreakMode:NSLineBreakByWordWrapping];
-        if (apply) self.descLabel.frame = CGRectMake(16, y, w - 32, ceilf(s.height));
-        y += ceilf(s.height) + 12;
+        CGSize s = [self.descLabel.text sizeWithFont:self.descLabel.font constrainedToSize:CGSizeMake(w - 36, 4 * 18) lineBreakMode:NSLineBreakByWordWrapping];
+        if (apply) self.descLabel.frame = CGRectMake(18, y, w - 36, ceilf(s.height));
+        y += ceilf(s.height) + 14;
     }
-    if (apply) self.rule.frame = CGRectMake(0, y - 1, w, 1);
-    return y;
+    return y + 2;
 }
 
 - (void)layoutSubviews

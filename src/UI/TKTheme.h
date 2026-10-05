@@ -45,6 +45,16 @@
 - (UIImage *)avatarPlaceholderWithSize:(CGFloat)size;
 - (UIImage *)sectionHeaderBackgroundImage;  // the blue-grey gradient of plain table headers
 - (UIImage *)controlsGradientImageTop:(BOOL)top;      // black fade behind the player controls
+// The pages (a creator, a hashtag, a sound, the topics): a shaded background with a fine grain over it, glossy
+// capsules for choices, and text pressed into the surface
+- (UIImage *)pageBackgroundImage;           // stretch to fill
+- (UIColor *)grainColor;                    // a pattern of fine noise to lay over it
+- (UIImage *)capsuleImageSelected:(BOOL)selected highlighted:(BOOL)highlighted height:(CGFloat)height;
+- (UIImage *)roundButtonImageWithSize:(CGFloat)size;  // a glossy black disc (a play button over a picture)
+- (UIImage *)badgeImageWithHeight:(CGFloat)height;    // a dark see-through glossy capsule (counts over pictures)
+- (void)embossLabel:(UILabel *)label;       // a shadow that sets the text into the surface (by the look)
+- (void)embossButton:(UIButton *)button;
+- (UIColor *)embossTextColor;               // the text of the pages' labels
 
 // Icons (template-like alpha drawings): tab bar
 - (UIImage *)tabIconHome;

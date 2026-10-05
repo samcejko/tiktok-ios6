@@ -62,8 +62,7 @@ static const NSUInteger TKSearchListMax = 40;     // rows per tab
 @interface TKSearchViewController () <UISearchBarDelegate, UITableViewDataSource, UITableViewDelegate>
 @property (nonatomic, copy) NSString *initialQuery;
 @property (nonatomic, copy) NSString *query;               // what the results are for
-@property (nonatomic, strong) UISearchBar *searchBar;
-@property (nonatomic, strong) UISegmentedControl *tabs;
+@property (nonatomic, strong) UISearchBar *searchBar;      // its scope bar (iOS 6) switches the tabs of the results
 @property (nonatomic, strong) UITableView *table;
 @property (nonatomic, strong) TKSearchResultsViewController *results;
 @property (nonatomic, strong) NSArray *suggestions;        // NSString, for suggestionsText
@@ -106,16 +105,11 @@ static const NSUInteger TKSearchListMax = 40;     // rows per tab
     self.searchBar.autocapitalizationType = UITextAutocapitalizationTypeNone;
     self.searchBar.autocorrectionType = UITextAutocorrectionTypeNo;
     self.searchBar.delegate = self;
+    self.searchBar.scopeButtonTitles = @[ L(@"Videos"), L(@"Creators"), L(@"Hashtags"), L(@"Sounds") ];
+    self.searchBar.selectedScopeButtonIndex = TKTabVideos;
+    self.searchBar.showsScopeBar = NO;
     [theme applyToSearchBar:self.searchBar];
     [self.view addSubview:self.searchBar];
-
-    self.tabs = [[UISegmentedControl alloc] initWithItems:@[ L(@"Videos"), L(@"Creators"), L(@"Hashtags"), L(@"Sounds") ]];
-    self.tabs.segmentedControlStyle = UISegmentedControlStyleBar;
-    if (theme.isDark) self.tabs.tintColor = [UIColor colorWithWhite:0.25 alpha:1];
-    self.tabs.selectedSegmentIndex = TKTabVideos;
-    [self.tabs addTarget:self action:@selector(tabChanged) forControlEvents:UIControlEventValueChanged];
-    self.tabs.hidden = YES;
-    [self.view addSubview:self.tabs];
 
     self.table = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStylePlain];
     self.table.dataSource = self;
@@ -147,22 +141,20 @@ static const NSUInteger TKSearchListMax = 40;     // rows per tab
 - (NSUInteger)supportedInterfaceOrientations { return TKIsPad() ? UIInterfaceOrientationMaskAll : UIInterfaceOrientationMaskPortrait; }
 
 - (BOOL)showingResults { return self.query.length > 0 && !self.typing; }
+- (NSInteger)tab { return self.searchBar.selectedScopeButtonIndex; }
 
 - (void)viewWillLayoutSubviews
 {
     [super viewWillLayoutSubviews];
     CGSize s = self.view.bounds.size;
-    self.searchBar.frame = CGRectMake(0, 0, s.width, 44);
-    CGFloat top = 44;
-    self.tabs.hidden = ![self showingResults];
-    if (!self.tabs.hidden) {
-        self.tabs.frame = CGRectMake(8, 50, s.width - 16, 30);
-        top = 86;
-    }
+    BOOL scope = [self showingResults];
+    if (self.searchBar.showsScopeBar != scope) self.searchBar.showsScopeBar = scope;
+    CGFloat top = scope ? 88 : 44;
+    self.searchBar.frame = CGRectMake(0, 0, s.width, top);
     CGRect content = CGRectMake(0, top, s.width, s.height - top);
     self.table.frame = content;
     self.results.view.frame = content;
-    BOOL grid = [self showingResults] && self.tabs.selectedSegmentIndex == TKTabVideos;
+    BOOL grid = [self showingResults] && [self tab] == TKTabVideos;
     self.results.view.hidden = !grid;
     self.table.hidden = grid;
     UIEdgeInsets inset = UIEdgeInsetsMake(0, 0, MAX(0, self.keyboardHeight - (s.height - CGRectGetMaxY(content))), 0);
@@ -196,7 +188,7 @@ static const NSUInteger TKSearchListMax = 40;     // rows per tab
     [self addChildViewController:self.results];
     [self.view insertSubview:self.results.view belowSubview:self.table];
     [self.results didMoveToParentViewController:self];
-    self.tabs.selectedSegmentIndex = TKTabVideos;
+    self.searchBar.selectedScopeButtonIndex = TKTabVideos;
 
     // a hashtag named like the search (its name has no spaces)
     NSString *joined = [[q componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] componentsJoinedByString:@""];
@@ -249,14 +241,14 @@ static const NSUInteger TKSearchListMax = 40;     // rows per tab
         for (NSString *q in [TKSettings searchHistory]) [rows addObject:@{ @"kind": @"history", @"text": q }];
         if (rows.count) [rows addObject:@{ @"kind": @"clear" }];
         else [rows addObject:@{ @"kind": @"note", @"text": L(@"Search TikTok for videos, creators, hashtags and sounds.") }];
-    } else if (self.tabs.selectedSegmentIndex == TKTabCreators) {
+    } else if ([self tab] == TKTabCreators) {
         [rows addObjectsFromArray:[self creatorRows]];
-    } else if (self.tabs.selectedSegmentIndex == TKTabHashtags) {
+    } else if ([self tab] == TKTabHashtags) {
         [rows addObjectsFromArray:[self hashtagRows]];
-    } else if (self.tabs.selectedSegmentIndex == TKTabSounds) {
+    } else if ([self tab] == TKTabSounds) {
         [rows addObjectsFromArray:[self soundRows]];
     }
-    if ([self showingResults] && self.tabs.selectedSegmentIndex != TKTabVideos && !rows.count)
+    if ([self showingResults] && [self tab] != TKTabVideos && !rows.count)
         [rows addObject:@{ @"kind": @"note", @"text": self.results.loading ? L(@"Searching…") : L(@"Nothing found.") }];
     self.rows = rows;
     [self.table reloadData];
@@ -444,6 +436,8 @@ static const NSUInteger TKSearchListMax = 40;     // rows per tab
 }
 
 - (void)searchBarSearchButtonClicked:(UISearchBar *)bar { [self searchFor:bar.text]; }
+
+- (void)searchBar:(UISearchBar *)bar selectedScopeButtonIndexDidChange:(NSInteger)selectedScope { [self tabChanged]; }
 
 - (void)searchBarCancelButtonClicked:(UISearchBar *)bar
 {

@@ -13,10 +13,91 @@ static NSString * const TKGridFooterId = @"footer";
 static const CGFloat TKGridGap = 1.5;
 static const NSTimeInterval TKGridRetryAfter = 5;   // a failed "more" is not asked again sooner
 
+#pragma mark - Header pieces
+
+@interface TKPageHeaderView ()
+@property (nonatomic, strong) UIImageView *backdrop;
+@property (nonatomic, strong) UIView *grain;
+@property (nonatomic, strong) UIView *darkLine;
+@property (nonatomic, strong) UIView *lightLine;
+@end
+
+@implementation TKPageHeaderView
+
+- (instancetype)initWithFrame:(CGRect)frame
+{
+    if ((self = [super initWithFrame:frame])) {
+        TKTheme *theme = [TKTheme shared];
+        self.clipsToBounds = YES;
+        _backdrop = [[UIImageView alloc] initWithImage:[theme pageBackgroundImage]];
+        [self addSubview:_backdrop];
+        _grain = [[UIView alloc] initWithFrame:CGRectZero];
+        _grain.backgroundColor = [theme grainColor];
+        _grain.userInteractionEnabled = NO;
+        [self addSubview:_grain];
+        _darkLine = [[UIView alloc] initWithFrame:CGRectZero];
+        _darkLine.backgroundColor = [UIColor colorWithWhite:0 alpha:theme.isDark ? 0.8 : 0.25];
+        [self addSubview:_darkLine];
+        _lightLine = [[UIView alloc] initWithFrame:CGRectZero];
+        _lightLine.backgroundColor = [UIColor colorWithWhite:1 alpha:theme.isDark ? 0.08 : 0.7];
+        [self addSubview:_lightLine];
+    }
+    return self;
+}
+
+- (void)layoutSubviews
+{
+    [super layoutSubviews];
+    CGRect b = self.bounds;
+    // (the shading spans a screen's height, so headers of different pages look alike)
+    self.backdrop.frame = CGRectMake(0, 0, b.size.width, MAX(b.size.height, 420));
+    self.grain.frame = b;
+    self.darkLine.frame = CGRectMake(0, b.size.height - 2, b.size.width, 1);
+    self.lightLine.frame = CGRectMake(0, b.size.height - 1, b.size.width, 1);
+    [self sendSubviewToBack:self.grain];
+    [self sendSubviewToBack:self.backdrop];
+}
+
+@end
+
+@interface TKFramedImageView ()
+@property (nonatomic, strong) TKImageView *picture;
+@end
+
+@implementation TKFramedImageView
+
+- (instancetype)initWithSize:(CGFloat)size round:(BOOL)round
+{
+    if ((self = [super initWithFrame:CGRectMake(0, 0, size, size)])) {
+        CGFloat radius = round ? size / 2 : 9;
+        self.backgroundColor = [UIColor whiteColor];
+        self.layer.cornerRadius = radius;
+        self.layer.shadowColor = [UIColor blackColor].CGColor;
+        self.layer.shadowOpacity = 0.55;
+        self.layer.shadowRadius = 3;
+        self.layer.shadowOffset = CGSizeMake(0, 2);
+        self.layer.shadowPath = [UIBezierPath bezierPathWithRoundedRect:self.bounds cornerRadius:radius].CGPath;
+        _picture = [[TKImageView alloc] initWithFrame:CGRectInset(self.bounds, 3, 3)];
+        _picture.contentMode = UIViewContentModeScaleAspectFill;
+        _picture.clipsToBounds = YES;
+        _picture.layer.cornerRadius = round ? (size - 6) / 2 : 7;
+        _picture.backgroundColor = [UIColor colorWithWhite:0.25 alpha:1];
+        _picture.maxPixels = 300;
+        _picture.userInteractionEnabled = NO;
+        [self addSubview:_picture];
+    }
+    return self;
+}
+
+- (id)imageView { return self.picture; }
+
+@end
+
 #pragma mark - Cells
 
 @interface TKGridCell : UICollectionViewCell
 @property (nonatomic, strong) TKImageView *cover;
+@property (nonatomic, strong) UIImageView *badgeBack;     // a dark glossy pill under the play count
 @property (nonatomic, strong) UILabel *badge;
 @end
 
@@ -32,13 +113,18 @@ static const NSTimeInterval TKGridRetryAfter = 5;   // a failed "more" is not as
         _cover.clipsToBounds = YES;
         _cover.maxPixels = 400;
         [self.contentView addSubview:_cover];
+        // a hairline frame, as photos had in 2012
+        self.contentView.layer.borderColor = [UIColor colorWithWhite:0 alpha:0.6].CGColor;
+        self.contentView.layer.borderWidth = 1;
+        _badgeBack = [[UIImageView alloc] initWithImage:[[TKTheme shared] badgeImageWithHeight:18]];
+        [self.contentView addSubview:_badgeBack];
         _badge = [[UILabel alloc] initWithFrame:CGRectZero];
         _badge.font = [UIFont boldSystemFontOfSize:11];
         _badge.textColor = [UIColor whiteColor];
-        _badge.backgroundColor = [UIColor colorWithWhite:0 alpha:0.55];
+        _badge.backgroundColor = [UIColor clearColor];
         _badge.textAlignment = NSTextAlignmentCenter;
-        _badge.layer.cornerRadius = 4;
-        _badge.layer.masksToBounds = YES;
+        _badge.shadowColor = [UIColor blackColor];
+        _badge.shadowOffset = CGSizeMake(0, -1);
         [self.contentView addSubview:_badge];
     }
     return self;
@@ -48,8 +134,9 @@ static const NSTimeInterval TKGridRetryAfter = 5;   // a failed "more" is not as
 {
     [super layoutSubviews];
     CGSize s = [self.badge.text sizeWithFont:self.badge.font];
-    self.badge.hidden = self.badge.text.length == 0;
-    self.badge.frame = CGRectMake(5, self.contentView.bounds.size.height - s.height - 9, ceilf(s.width) + 10, ceilf(s.height) + 4);
+    self.badge.hidden = self.badgeBack.hidden = self.badge.text.length == 0;
+    self.badge.frame = CGRectMake(5, self.contentView.bounds.size.height - 25, MAX(28, ceilf(s.width) + 14), 18);
+    self.badgeBack.frame = self.badge.frame;
 }
 
 @end

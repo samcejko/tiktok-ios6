@@ -2,6 +2,17 @@
 
 @class TKHTTPTask;
 
+// What every page header stands on (iOS 6): a shaded, finely grained surface with an etched line along the bottom.
+// Subclasses add their content in front.
+@interface TKPageHeaderView : UIView
+@end
+
+// An avatar or a cover in a white frame with a soft shadow under it (round, or with rounded corners)
+@interface TKFramedImageView : UIView
+@property (nonatomic, strong, readonly) id imageView;     // a TKImageView
+- (instancetype)initWithSize:(CGFloat)size round:(BOOL)round;
+@end
+
 // A page with a header over a grid of videos (a creator, a hashtag, a sound, search results). It asks for the next
 // page as the end of the grid comes near; a tapped video plays full screen with the rest of the list after it, and
 // that list grows from the same source.
