@@ -909,6 +909,7 @@ static UIImage *TKCapsuleImage(UIColor *top, UIColor *bottom, UIColor *stroke, C
     tableView.backgroundColor = tableView.style != UITableViewStylePlain ? [self backgroundColor] : [self cardColor];
     tableView.separatorColor = [self separatorColor];
     tableView.indicatorStyle = self.dark ? UIScrollViewIndicatorStyleWhite : UIScrollViewIndicatorStyleDefault;
+    TKModernSetTableViewDark(tableView, [self isDark]);
 }
 
 - (void)styleCell:(UITableViewCell *)cell
