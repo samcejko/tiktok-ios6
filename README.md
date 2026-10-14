@@ -1,6 +1,7 @@
 # TikTak - TikTok on iOS 6
 
-An unofficial TikTok **viewer** for jailbroken iOS 6.x (iPad 2 / iPhone 4S era), in English and Czech. A vertical,
+An unofficial TikTok **viewer** for jailbroken iOS 6.x (iPad 2 / iPhone 4S era) and, as a second build of the same
+sources, for 64-bit devices with iOS 14–17 (iPhone X and newer: rootless jailbreaks and TrollStore), in English and Czech. A vertical,
 full-screen "For You" feed that tries videos from all of TikTok's topics and learns on the device what you like -
 what you watch to the end, save or skip; no following, no preset creators (at the first start you can pick a few
 topics to give it a head start). You can search TikTok, open hashtags and sounds, watch videos and photo posts with
@@ -39,6 +40,12 @@ at [ko-fi.com/samcejko](https://ko-fi.com/samcejko).
 
 By hand: the IPA installs with `ipainstaller -f TikTak-<version>.ipa` (AppSync Unified), or the DEB with `dpkg -i` then
 `su mobile -c uicache`. Either works. Do not keep both installed at once.
+
+On iOS 14–17 (64-bit): with a rootless jailbreak add the same repository in Sileo or Zebra, or install the
+`iphoneos-arm64` `.deb` with `dpkg -i` (it goes into `/var/jb/Applications`); without a jailbreak open
+`TikTak-<version>-arm64.ipa` in [TrollStore](https://github.com/opa334/TrollStore). The same app, the same iOS 6 look;
+not tried on a device yet. CI builds both from one source tree (`make package THEOS_PACKAGE_SCHEME=rootless` for arm64,
+the iOS 16.5 SDK, deployment target 14.0); the differences live in `src/Util/TKModern.m` and `tools/modern_bundle.py`.
 
 ## Project layout
 

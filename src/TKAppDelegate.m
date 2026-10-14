@@ -13,6 +13,7 @@
 #import "TKSettings.h"
 #import "TKTheme.h"
 #import "TKUtils.h"
+#import "TKModern.h"
 #import "TKCommon.h"
 #include <dlfcn.h>
 #include <signal.h>
@@ -63,6 +64,8 @@ static BOOL TKPressView(UIView *v, NSString *text)
     signal(SIGPIPE, SIG_IGN);
     [TKSettings registerDefaults];
     TKLog(@"Tikie %@ starting on %@ (iOS %@)", [TKUtils appVersion], [TKUtils deviceModel], [UIDevice currentDevice].systemVersion);
+    // iOS 7 and newer (the arm64 build): the iOS 6 look of the bars, full-screen modals; nothing on iOS 6
+    TKModernSetUp([[TKTheme shared] barStyle]);
     [TKTLSSocket warmUp];
     [[TKImageLoader shared] pruneDisk];
 

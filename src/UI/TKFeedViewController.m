@@ -17,6 +17,7 @@
 #import "TKExternalOpen.h"
 #import "TKTheme.h"
 #import "TKUtils.h"
+#import "TKModern.h"
 #import "TKCommon.h"
 
 enum { TKSheetMenu = 1, TKSheetVideo = 2 };
@@ -52,6 +53,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
 @property (nonatomic, strong) UIButton *messageButton;
 @property (nonatomic, strong) UIActivityIndicatorView *spinner;
 @property (nonatomic, strong) UIButton *menuButton;
+@property (nonatomic, strong) UIButton *closeButton;     // (fixed lists only)
 @property (nonatomic, strong) UIButton *searchButton;
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) TKBottomSheet *commentsSheet;
@@ -114,6 +116,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
     self.scroll.showsHorizontalScrollIndicator = NO;
     self.scroll.delegate = self;
     self.scroll.backgroundColor = [UIColor blackColor];
+    TKModernKeepScrollViewInsets(self.scroll);   // (iOS 11+ would add the notch to the pages' insets and break the paging)
     [self.view addSubview:self.scroll];
 
     self.spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleWhiteLarge];
@@ -162,6 +165,7 @@ static const NSInteger TKAutoAdvancesMax = 5;
         close.layer.shadowOpacity = 0.7;
         [close addTarget:self action:@selector(closeFixed) forControlEvents:UIControlEventTouchUpInside];
         [self.view addSubview:close];
+        self.closeButton = close;
     } else {
         self.searchButton = [UIButton buttonWithType:UIButtonTypeCustom];
         [self.searchButton setImage:[[TKTheme shared] searchIconWhite] forState:UIControlStateNormal];
@@ -198,11 +202,14 @@ static const NSInteger TKAutoAdvancesMax = 5;
     [super viewDidLayoutSubviews];
     CGRect all = self.view.bounds;
     CGRect pager = all;
+    // the status bar (20 on iOS 6, where the view lies under it), the notch on iOS 11+ (the status bar is hidden
+    // from iOS 7 on, so 0 elsewhere)
+    CGFloat top = TKModernTopInset(self.view, 20);
     if ([self wantsPanel] && self.commentsSheet) [self closeComments];   // (the panel shows them on the side)
     if ([self wantsPanel]) {
         pager.size.width = floorf(all.size.width * 0.58f);
         [self ensurePanel];
-        self.panelNav.view.frame = CGRectMake(CGRectGetMaxX(pager), 20, all.size.width - pager.size.width, all.size.height - 20);
+        self.panelNav.view.frame = CGRectMake(CGRectGetMaxX(pager), top, all.size.width - pager.size.width, all.size.height - top);
         self.panelNav.view.hidden = NO;
         [self.panel showVideo:[self videoAt:self.currentIndex]];
     } else {
@@ -222,12 +229,19 @@ static const NSInteger TKAutoAdvancesMax = 5;
     self.spinner.center = CGPointMake(s.width / 2, s.height / 2);
     self.messageLabel.frame = CGRectMake(30, s.height / 2 - 70, s.width - 60, 90);
     self.messageButton.frame = CGRectMake(s.width / 2 - 80, s.height / 2 + 30, 160, 40);
-    self.titleLabel.frame = CGRectMake(s.width / 2 - 100, 26, 200, 20);
-    self.menuButton.frame = CGRectMake(s.width - 48, 24, 40, 40);
-    self.searchButton.frame = CGRectMake(8, 24, 40, 40);
+    self.titleLabel.frame = CGRectMake(s.width / 2 - 100, top + 6, 200, 20);
+    self.menuButton.frame = CGRectMake(s.width - 48, top + 4, 40, 40);
+    self.searchButton.frame = CGRectMake(8, top + 4, 40, 40);
+    self.closeButton.frame = CGRectMake(8, top + 4, 40, 40);
 }
 
 - (BOOL)prefersStatusBarHidden { return YES; }
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110000
+// iOS 11 and newer: the scrubbing strip at the bottom of a page must not be taken for the home gesture (it needs a
+// second swipe then), and the home indicator fades away
+- (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeBottom; }
+- (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
+#endif
 // Every orientation on the iPad (on its side the comments sit beside the video); a phone stays upright
 - (BOOL)shouldAutorotate { return YES; }
 - (NSUInteger)supportedInterfaceOrientations

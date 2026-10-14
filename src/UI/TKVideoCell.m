@@ -7,6 +7,7 @@
 #import "TKImageLoader.h"
 #import "TKTheme.h"
 #import "TKUtils.h"
+#import "TKModern.h"
 #import "TKCommon.h"
 #import <AVFoundation/AVFoundation.h>
 #import <CoreMedia/CoreMedia.h>
@@ -273,6 +274,8 @@ static FourCharCode TKFourCC(const char *s)
     self.spinner.center = CGPointMake(b.size.width / 2, b.size.height / 2);
     self.pauseBadge.bounds = CGRectMake(0, 0, 70, 70);
     self.pauseBadge.center = CGPointMake(b.size.width / 2, b.size.height / 2);
+    // the page fills the screen: everything anchored to its bottom moves up over the home indicator (iOS 11+)
+    b.size.height -= TKSafeAreaInsets(self).bottom;
     CGFloat railX = b.size.width - 64;
     CGFloat y = b.size.height - 240;
     self.saveButton.frame = CGRectMake(railX, y, 48, 48);
@@ -294,9 +297,10 @@ static FourCharCode TKFourCC(const char *s)
     self.avatarButton.frame = CGRectMake(railX + 1, y - 64, 46, 46);
     self.errorLabel.frame = CGRectMake(30, b.size.height / 2 - 40, b.size.width - 60, 80);
     if (self.photoPager) {
-        self.photoPager.frame = b;
-        self.photoPager.contentSize = CGSizeMake(b.size.width * self.photoViews.count, b.size.height);
-        for (NSUInteger i = 0; i < self.photoViews.count; i++) [self.photoViews[i] setFrame:CGRectMake(b.size.width * i, 0, b.size.width, b.size.height)];
+        CGRect full = self.bounds;   // (the pictures themselves run to the bottom edge)
+        self.photoPager.frame = full;
+        self.photoPager.contentSize = CGSizeMake(full.size.width * self.photoViews.count, full.size.height);
+        for (NSUInteger i = 0; i < self.photoViews.count; i++) [self.photoViews[i] setFrame:CGRectMake(full.size.width * i, 0, full.size.width, full.size.height)];
         if (!self.photoAnimating) [self snapPhotoPager];
         self.photoDots.frame = CGRectMake(0, 62, b.size.width, 20);
     }
@@ -616,8 +620,14 @@ static FourCharCode TKFourCC(const char *s)
     Float64 dur = CMTimeGetSeconds(self.item.duration);
     if (dur > 0 && !isnan(dur)) {
         CGFloat w = self.bounds.size.width * (CGFloat)(seconds / dur);
-        self.progressBar.frame = CGRectMake(0, self.bounds.size.height - 2, w, 2);
+        self.progressBar.frame = CGRectMake(0, [self progressBottom] - 2, w, 2);
     }
+}
+
+// the bottom edge the progress line sits on (above the home indicator of iOS 11+)
+- (CGFloat)progressBottom
+{
+    return self.bounds.size.height - TKSafeAreaInsets(self).bottom;
 }
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
@@ -892,7 +902,7 @@ static FourCharCode TKFourCC(const char *s)
     fraction = MAX(0, MIN(1, fraction));
     Float64 t = fraction * dur;
     CGRect b = self.bounds;
-    self.progressBar.frame = CGRectMake(0, b.size.height - 5, b.size.width * fraction, 5);
+    self.progressBar.frame = CGRectMake(0, [self progressBottom] - 5, b.size.width * fraction, 5);
     self.scrubLabel.text = [NSString stringWithFormat:@"%@ / %@", [TKUtils formatDuration:t], [TKUtils formatDuration:dur]];
     CMTime tolerance = exact ? kCMTimeZero : CMTimeMakeWithSeconds(0.4, 600);
     [self.player seekToTime:CMTimeMakeWithSeconds(t, 600) toleranceBefore:tolerance toleranceAfter:tolerance];
@@ -979,6 +989,7 @@ static FourCharCode TKFourCC(const char *s)
     if (self.photoPager || ![self isPhotoPost]) return;
     self.photoPager = [[UIScrollView alloc] initWithFrame:self.bounds];
     self.photoPager.pagingEnabled = YES;
+    TKModernKeepScrollViewInsets(self.photoPager);   // (iOS 11+ would add the notch to the insets and break the paging)
     self.photoPager.showsHorizontalScrollIndicator = NO;
     self.photoPager.showsVerticalScrollIndicator = NO;
     self.photoPager.scrollsToTop = NO;
@@ -1063,7 +1074,7 @@ static FourCharCode TKFourCC(const char *s)
     if (!self.photoAnimating) [self snapPhotoPager];
     self.photoShownFor += 0.5;
     CGFloat w = self.bounds.size.width * (CGFloat)((self.photoIndex + MIN(1.0, self.photoShownFor / TKPhotoSeconds)) / self.photoViews.count);
-    self.progressBar.frame = CGRectMake(0, self.bounds.size.height - 2, w, 2);
+    self.progressBar.frame = CGRectMake(0, [self progressBottom] - 2, w, 2);
     if (self.photoShownFor < TKPhotoSeconds) return;
     NSInteger next = self.photoIndex + 1;
     if (next >= (NSInteger)self.photoViews.count) {           // one round through the pictures: like a video's end

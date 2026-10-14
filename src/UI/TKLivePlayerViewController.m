@@ -8,6 +8,7 @@
 #import "TKImageLoader.h"
 #import "TKTheme.h"
 #import "TKUtils.h"
+#import "TKModern.h"
 #import "TKCommon.h"
 
 NSString * const TKLivePlaybackNotification = @"TKLivePlaybackNotification";
@@ -171,19 +172,22 @@ static NSInteger TKStreamLongSide(NSDictionary *s)
     [CATransaction setDisableActions:YES];
     self.playerLayer.frame = self.videoView.bounds;
     [CATransaction commit];
-    self.topShade.frame = CGRectMake(0, 0, s.width, 130);
-    self.closeButton.frame = CGRectMake(8, 24, 40, 40);
-    self.ownerAvatar.frame = CGRectMake(54, 26, 36, 36);
+    // the status bar (20 on iOS 6, where the view lies under it), the notch on iOS 11+ (the status bar is hidden
+    // from iOS 7 on, so 0 elsewhere)
+    CGFloat top = TKModernTopInset(self.view, 20);
+    self.topShade.frame = CGRectMake(0, 0, s.width, top + 110);
+    self.closeButton.frame = CGRectMake(8, top + 4, 40, 40);
+    self.ownerAvatar.frame = CGRectMake(54, top + 6, 36, 36);
     CGFloat textX = 98, textW = MAX(60, s.width - textX - 16);
-    self.ownerLabel.frame = CGRectMake(textX, 25, textW, 19);
+    self.ownerLabel.frame = CGRectMake(textX, top + 5, textW, 19);
     CGSize pill = [self.livePill.text sizeWithFont:self.livePill.font];
-    self.livePill.frame = CGRectMake(textX, 47, ceilf(pill.width) + 10, 15);
+    self.livePill.frame = CGRectMake(textX, top + 27, ceilf(pill.width) + 10, 15);
     CGFloat viewersX = self.livePill.hidden ? textX : CGRectGetMaxX(self.livePill.frame) + 7;
-    self.viewersLabel.frame = CGRectMake(viewersX, 45, MAX(40, textX + textW - viewersX), 18);
+    self.viewersLabel.frame = CGRectMake(viewersX, top + 25, MAX(40, textX + textW - viewersX), 18);
     CGSize name = [self.ownerLabel.text ?: @"" sizeWithFont:self.ownerLabel.font];
-    self.ownerButton.frame = CGRectMake(50, 20, MIN(textW, MAX(ceilf(name.width), 90)) + 52, 48);
+    self.ownerButton.frame = CGRectMake(50, top, MIN(textW, MAX(ceilf(name.width), 90)) + 52, 48);
     CGSize title = [self.titleLabel.text ?: @"" sizeWithFont:self.titleLabel.font constrainedToSize:CGSizeMake(s.width - 32, 40) lineBreakMode:NSLineBreakByTruncatingTail];
-    self.titleLabel.frame = CGRectMake(16, 74, s.width - 32, ceilf(title.height));
+    self.titleLabel.frame = CGRectMake(16, top + 54, s.width - 32, ceilf(title.height));
     self.spinner.center = CGPointMake(s.width / 2, s.height / 2);
     self.messageLabel.frame = CGRectMake(30, s.height / 2 - 60, s.width - 60, 120);
 }

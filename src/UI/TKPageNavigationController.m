@@ -3,6 +3,7 @@
 #import "TKFeedViewController.h"
 #import "TKLinkRouter.h"
 #import "TKTheme.h"
+#import "TKModern.h"
 #import "TKCommon.h"
 
 // Stands under the first page so that the bar draws a real (arrow-shaped) back button there; it is never shown
@@ -58,6 +59,8 @@
         self.wantsFullScreenLayout = YES;
         self.modalPresentationStyle = UIModalPresentationFullScreen;
         [[TKTheme shared] applyToNavigationBar:self.navigationBar];
+        // (Back has logic of its own below; the swipe of iOS 7+ would pop past the first page onto the black bottom)
+        TKModernDisableSwipeBack(self);
     }
     return self;
 }

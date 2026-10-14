@@ -149,7 +149,9 @@ static const NSUInteger TKSearchListMax = 40;     // rows per tab
     CGSize s = self.view.bounds.size;
     BOOL scope = [self showingResults];
     if (self.searchBar.showsScopeBar != scope) self.searchBar.showsScopeBar = scope;
-    CGFloat top = scope ? 88 : 44;
+    // (44, 88 with the scope bar, on iOS 6; iOS 11+ bars are taller and say so themselves)
+    CGFloat top = ceilf([self.searchBar sizeThatFits:CGSizeMake(s.width, 0)].height);
+    if (top < 44) top = scope ? 88 : 44;
     self.searchBar.frame = CGRectMake(0, 0, s.width, top);
     CGRect content = CGRectMake(0, top, s.width, s.height - top);
     self.table.frame = content;
