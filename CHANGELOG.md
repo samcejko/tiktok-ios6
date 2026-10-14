@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 (2026-10-14)
+
+- Settings → About has a "Support the development" row that opens the author's Ko-fi page. The app stays free.
+- TikTak is in the Cydia repository `http://samcejko.eu/repo/` now: add it as a source in Cydia to get updates.
+
 ## 0.2.0 (2026-10-05)
 
 - Search (the magnifier on the feed): TikTok's suggestions while typing, recent searches, results as videos,

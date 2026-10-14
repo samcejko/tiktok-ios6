@@ -40,7 +40,7 @@ enum { SecServer, SecFeed, SecPlayback, SecAppearance, SecNetwork, SecData, SecA
         case SecAppearance: return 1;
         case SecNetwork: return 1;
         case SecData: return 2;
-        case SecAbout: return 1;
+        case SecAbout: return 2;
     }
     return 0;
 }
@@ -108,8 +108,10 @@ enum { SecServer, SecFeed, SecPlayback, SecAppearance, SecNetwork, SecData, SecA
     } else if (s == SecData) {
         cell.textLabel.text = r == 0 ? L(@"Clear image cache") : L(@"Clear saved videos");
         if (r == 1) cell.textLabel.textColor = [UIColor colorWithRed:0.8 green:0.2 blue:0.2 alpha:1];
-    } else if (s == SecAbout) {
+    } else if (s == SecAbout && r == 0) {
         cell.textLabel.text = L(@"Version"); cell.detailTextLabel.text = [TKUtils appVersion]; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    } else if (s == SecAbout) {
+        cell.textLabel.text = L(@"Support the development"); cell.detailTextLabel.text = @"ko-fi.com/samcejko"; cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     }
     return cell;
 }
@@ -156,6 +158,8 @@ enum { SecServer, SecFeed, SecPlayback, SecAppearance, SecNetwork, SecData, SecA
         UIAlertView *a = [[UIAlertView alloc] initWithTitle:L(@"Clear saved videos") message:L(@"Remove every saved video?") delegate:self cancelButtonTitle:L(@"Cancel") otherButtonTitles:L(@"Clear"), nil];
         a.tag = 3;
         [a show];
+    } else if (s == SecAbout && r == 1) {
+        [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://ko-fi.com/samcejko"]];
     }
 }
 
