@@ -21,7 +21,7 @@ param(
     [string]$HeadSha = ''
 )
 
-$AppName = 'Tikie'
+$AppName = 'TikTak'   # (the artifacts and IPAs carry the shown name; the bundle inside stays Tikie.app)
 
 $ErrorActionPreference = 'Stop'
 if (-not $OutDir) { $OutDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'packages' }
