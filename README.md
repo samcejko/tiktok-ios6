@@ -33,8 +33,8 @@ live stream (Surfari offers it for tiktok.com links), and so does "Open a link" 
 
 ## Installing on the device
 
-The easy way: add the Cydia repository `http://samcejko.eu/repo/` (Cydia → Sources → Edit → Add) and install TikTak
-from there; updates then come through Cydia. The app is free; if it is useful to you, you can support the development
+The easy way: add the repository `http://repo.samcejko.eu/` in Cydia (Sources → Edit → Add), Sileo, Zebra or Installer
+and install TikTak from there; updates then come through the package manager. The app is free; if it is useful to you, you can support the development
 at [ko-fi.com/samcejko](https://ko-fi.com/samcejko).
 
 By hand: the IPA installs with `ipainstaller -f TikTak-<version>.ipa` (AppSync Unified), or the DEB with `dpkg -i` then
