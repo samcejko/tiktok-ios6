@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 (2026-10-14)
+
+- Web links in texts are tappable: in a video's caption (next to its #hashtags and @mentions), in comments and
+  replies, in a creator's bio and link, in a hashtag's description. A TikTok link opens in TikTak; a link to YouTube,
+  Twitch or Kick opens in Tubie, Twitcher or Kicker when that app is installed; on iOS 6 any other link asks whether
+  to open it in Safari or in Surfari, iOS 7 and newer open Safari at once. A text with several links lists them first.
+- The video's hold menu lists Safari and Surfari (when installed) side by side on iOS 6; on iOS 7 and newer it has
+  "Share" (the system's share sheet) instead. The Ko-fi row in Settings goes the same way as a link.
+- The iOS 6 package now declares iOS 6.0 up to 10.x, so it is no longer offered to 64-bit devices with a rootful
+  jailbreak; the arm64 package stays iOS 15 and newer.
+
 ## 0.3.0 (2026-10-14)
 
 - A second build for 64-bit devices with iOS 14–17 (iPhone X and newer), from the same source tree: the `.deb` with

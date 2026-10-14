@@ -190,6 +190,39 @@ static unichar TKPlainLetter(UTF32Char c)
     return out;
 }
 
+#pragma mark - Links
+
++ (NSArray *)webLinksInText:(NSString *)text
+{
+    if (text.length < 4) return @[];
+    static NSDataDetector *detector;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ detector = [NSDataDetector dataDetectorWithTypes:NSTextCheckingTypeLink error:NULL]; });
+    NSMutableArray *links = [NSMutableArray array];
+    for (NSTextCheckingResult *m in [detector matchesInString:text options:0 range:NSMakeRange(0, text.length)]) {
+        NSURL *url = m.URL;
+        NSString *scheme = [url.scheme lowercaseString];
+        if (!url.host.length || !([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"])) continue;   // (mailto: and the like)
+        if (m.range.location > 0) {
+            unichar before = [text characterAtIndex:m.range.location - 1];
+            if (before == '@' || before == '#') continue;      // "@john.name": a mention, not the .name domain
+        }
+        [links addObject:m];
+    }
+    return links;
+}
+
++ (NSString *)linkTitle:(id)link length:(NSUInteger)length
+{
+    NSString *s = [link isKindOfClass:[NSURL class]] ? [(NSURL *)link absoluteString] : [link isKindOfClass:[NSString class]] ? link : @"";
+    for (NSString *prefix in @[ @"https://", @"http://" ]) {
+        if ([[s lowercaseString] hasPrefix:prefix]) { s = [s substringFromIndex:prefix.length]; break; }
+    }
+    if ([[s lowercaseString] hasPrefix:@"www."]) s = [s substringFromIndex:4];
+    while ([s hasSuffix:@"/"]) s = [s substringToIndex:s.length - 1];
+    return [self truncate:s to:length];
+}
+
 #pragma mark - Encoding
 
 + (NSString *)urlEncode:(NSString *)string

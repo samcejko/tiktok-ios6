@@ -1,10 +1,17 @@
 #import "TKCaptionView.h"
 #import <CoreText/CoreText.h>
+#import "TKUtils.h"
 #import "TKCommon.h"
 
 static NSString * const TKLinkAttribute = @"TKLink";
 static const CGFloat TKLineGap = 1;
 static const CGFloat TKTapSlop = 8;      // a finger is wider than a letter
+
+static BOOL TKRangeTaken(NSRange r, NSArray *taken)
+{
+    for (NSValue *v in taken) if (NSIntersectionRange(r, v.rangeValue).length) return YES;
+    return NO;
+}
 
 @interface TKCaptionView ()
 @property (nonatomic, strong) NSAttributedString *attributed;
@@ -41,7 +48,7 @@ static const CGFloat TKTapSlop = 8;      // a finger is wider than a letter
 - (void)setFont:(UIFont *)font { _font = font; [self rebuildText]; }
 - (void)setMaxLines:(NSUInteger)maxLines { _maxLines = maxLines; self.builtWidth = -1; [self setNeedsDisplay]; }
 
-// The text with CoreText attributes: hashtags and mentions bold and marked with what they open
+// The text with CoreText attributes: web links, hashtags and mentions bold and marked with what they open
 - (void)rebuildText
 {
     NSString *s = self.text ?: @"";
@@ -51,14 +58,23 @@ static const CGFloat TKTapSlop = 8;      // a finger is wider than a letter
     NSMutableAttributedString *a = [[NSMutableAttributedString alloc] initWithString:s attributes:@{
         (id)kCTFontAttributeName: (__bridge id)plainFont,
         (id)kCTForegroundColorAttributeName: (__bridge id)[UIColor whiteColor].CGColor }];
+    // web links first: a #hashtag or @mention inside one ("youtube.com/@name") belongs to the link (the domain-like
+    // tail of a mention, "@john.name", is no link: TKUtils leaves it out)
+    NSMutableArray *taken = [NSMutableArray array];
+    for (NSTextCheckingResult *m in [TKUtils webLinksInText:s]) {
+        [a addAttributes:@{ (id)kCTFontAttributeName: (__bridge id)boldFont, TKLinkAttribute: [@"url:" stringByAppendingString:m.URL.absoluteString] } range:m.range];
+        [taken addObject:[NSValue valueWithRange:m.range]];
+    }
     static NSRegularExpression *tags, *users;
     if (!tags) tags = [NSRegularExpression regularExpressionWithPattern:@"#[\\p{L}\\p{N}_]+" options:0 error:NULL];
     if (!users) users = [NSRegularExpression regularExpressionWithPattern:@"(?<![\\w.])@[A-Za-z0-9_.]*[A-Za-z0-9_]" options:0 error:NULL];
     for (NSTextCheckingResult *m in [tags matchesInString:s options:0 range:NSMakeRange(0, s.length)]) {
+        if (TKRangeTaken(m.range, taken)) continue;
         NSString *name = [s substringWithRange:NSMakeRange(m.range.location + 1, m.range.length - 1)];
         [a addAttributes:@{ (id)kCTFontAttributeName: (__bridge id)boldFont, TKLinkAttribute: [@"tag:" stringByAppendingString:name] } range:m.range];
     }
     for (NSTextCheckingResult *m in [users matchesInString:s options:0 range:NSMakeRange(0, s.length)]) {
+        if (TKRangeTaken(m.range, taken)) continue;
         NSString *handle = [s substringWithRange:NSMakeRange(m.range.location + 1, m.range.length - 1)];
         if (handle.length < 2) continue;
         [a addAttributes:@{ (id)kCTFontAttributeName: (__bridge id)boldFont, TKLinkAttribute: [@"user:" stringByAppendingString:handle] } range:m.range];

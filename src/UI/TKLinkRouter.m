@@ -6,11 +6,48 @@
 #import "TKSearchViewController.h"
 #import "TKPageNavigationController.h"
 #import "TKLivePlayerViewController.h"
+#import "TKExternalOpen.h"
 #import "TKTikTok.h"
 #import "TKModels.h"
 #import "TKTheme.h"
 #import "TKUtils.h"
 #import "TKCommon.h"
+
+#pragma mark - The sheet that lists the links of a text
+
+// Its delegate: UIActionSheet does not retain it, so it keeps itself in g_choices until the sheet is gone. The chosen
+// link opens once the sheet has gone (what it opens may be a sheet itself), not under it.
+@interface TKLinkChoice : NSObject <UIActionSheetDelegate>
+@property (nonatomic, strong) NSArray *links;
+@property (nonatomic, weak) UIViewController *controller;
+@property (nonatomic, weak) UIView *anchor;
+@property (nonatomic) NSInteger chosen;        // -1: none
+@end
+
+static NSMutableArray *g_choices;
+
+@implementation TKLinkChoice
+
+- (instancetype)init
+{
+    if ((self = [super init])) _chosen = -1;
+    return self;
+}
+
+- (void)actionSheet:(UIActionSheet *)sheet clickedButtonAtIndex:(NSInteger)index
+{
+    self.chosen = (index >= 0 && index != sheet.cancelButtonIndex && index < (NSInteger)self.links.count) ? index : -1;
+}
+
+- (void)actionSheet:(UIActionSheet *)sheet didDismissWithButtonIndex:(NSInteger)index
+{
+    sheet.delegate = nil;
+    if (self.chosen >= 0) [TKLinkRouter openWebLink:self.links[(NSUInteger)self.chosen] from:self.controller anchor:self.anchor];
+    TKLinkChoice *me = self;
+    dispatch_async(dispatch_get_main_queue(), ^{ [g_choices removeObject:me]; });
+}
+
+@end
 
 @implementation TKLinkRouter
 
@@ -197,6 +234,46 @@
         return;
     }
     [top presentViewController:live animated:YES completion:nil];
+}
+
+#pragma mark - Web links in texts
+
+// The link as text, with a scheme ("linktr.ee/name" -> "https://linktr.ee/name"); nil when there is nothing
++ (NSString *)webLinkString:(id)link
+{
+    NSString *s = [link isKindOfClass:[NSURL class]] ? [(NSURL *)link absoluteString] : [link isKindOfClass:[NSString class]] ? link : nil;
+    s = [s stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (!s.length) return nil;
+    if ([s rangeOfString:@"://"].location == NSNotFound) s = [@"https://" stringByAppendingString:s];
+    return s;
+}
+
++ (void)openWebLink:(id)link from:(UIViewController *)controller anchor:(UIView *)anchor
+{
+    NSString *s = [self webLinkString:link];
+    if (!s) return;
+    // a TikTok link: inside the app (a video, a photo post, a profile, a hashtag, a sound, a live stream); one the
+    // router does not know (tiktok.com/about…) goes on to a browser like any other
+    if ([self openLink:s]) return;
+    NSURL *url = [NSURL URLWithString:s] ?: [NSURL URLWithString:[s stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding] ?: @""];
+    if (!url) return;
+    [TKExternalOpen presentOpenInForURL:url from:controller ?: [self topController] anchor:anchor];
+}
+
++ (void)openWebLinks:(NSArray *)links from:(UIViewController *)controller anchor:(UIView *)anchor
+{
+    if (!links.count) return;
+    if (links.count == 1) { [self openWebLink:links[0] from:controller anchor:anchor]; return; }
+    TKLinkChoice *choice = [[TKLinkChoice alloc] init];
+    choice.links = links;
+    choice.controller = controller;
+    choice.anchor = anchor;
+    UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:L(@"Open a link") delegate:choice cancelButtonTitle:nil destructiveButtonTitle:nil otherButtonTitles:nil];
+    for (id link in links) [sheet addButtonWithTitle:[TKUtils linkTitle:link length:60]];
+    sheet.cancelButtonIndex = [sheet addButtonWithTitle:L(@"Cancel")];
+    if (!g_choices) g_choices = [NSMutableArray array];
+    [g_choices addObject:choice];
+    [TKExternalOpen showSheet:sheet from:controller ?: [self topController] anchor:anchor];
 }
 
 @end

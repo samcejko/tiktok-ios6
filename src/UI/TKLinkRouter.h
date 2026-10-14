@@ -9,6 +9,14 @@
 + (void)openVideoId:(NSString *)videoId author:(NSString *)author;
 + (void)openLiveRoom:(NSString *)roomId;
 
+// A web link tapped in a text (a caption, a comment, a bio; NSString or NSURL): a TikTok link opens inside the app,
+// one to YouTube, Twitch or Kick is offered to the sister app, anything else goes to a browser - iOS 6 asks which
+// (TKExternalOpen). `controller` and `anchor` are where a sheet is shown (nil: the screen on top). The debug command
+// tikie:link?url= runs this very path.
++ (void)openWebLink:(id)link from:(UIViewController *)controller anchor:(UIView *)anchor;
+// The links of one text: a single one opens at once, several are listed in a sheet first
++ (void)openWebLinks:(NSArray *)links from:(UIViewController *)controller anchor:(UIView *)anchor;
+
 // Pages (they slide in over the feed, one stack: see TKPageNavigationController)
 + (void)openProfile:(NSString *)handle;
 + (void)openHashtag:(NSString *)name;

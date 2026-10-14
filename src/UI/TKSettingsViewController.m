@@ -2,6 +2,7 @@
 #import "TKLanguagesViewController.h"
 #import "TKTasteViewController.h"
 #import "TKTopicsViewController.h"
+#import "TKExternalOpen.h"
 #import "TKTikTok.h"
 #import "TKSettings.h"
 #import "TKImageLoader.h"
@@ -159,7 +160,8 @@ enum { SecServer, SecFeed, SecPlayback, SecAppearance, SecNetwork, SecData, SecA
         a.tag = 3;
         [a show];
     } else if (s == SecAbout && r == 1) {
-        [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://ko-fi.com/samcejko"]];
+        // (iOS 6 asks: Safari or Surfari; newer iOS opens Safari at once)
+        [TKExternalOpen presentOpenInForURL:[NSURL URLWithString:@"https://ko-fi.com/samcejko"] from:self anchor:[t cellForRowAtIndexPath:ip]];
     }
 }
 

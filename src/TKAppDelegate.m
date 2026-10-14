@@ -90,7 +90,7 @@ static BOOL TKPressView(UIView *v, NSString *text)
 // tiktak:live/<room>, tiktak:tag/<hashtag>, tiktak:sound/<id>, tiktak:search?q=, tiktak:server?url=&key=, and plain
 // tiktok.com links; tikie: (the app's first name) works the same. Debug commands (need Documents/debug): snapshot,
 // screen, press?title=/n=/item=, back, stats, swipe[?dir=down], saved[?clear=1], taste[?reset=1],
-// gesture?type=double|hold|scrub[&f=]|pos|comments, lang?set=en|cs|system.
+// gesture?type=double|hold|scrub[&f=]|pos|comments, lang?set=en|cs|system, link?url=<percent-encoded web link>.
 - (BOOL)application:(UIApplication *)application openURL:(NSURL *)url sourceApplication:(NSString *)sourceApplication annotation:(id)annotation
 {
     NSString *s = url.absoluteString ?: @"";
@@ -140,6 +140,14 @@ static BOOL TKPressView(UIView *v, NSString *text)
         return YES;
     }
     if ([target isEqualToString:@"proxylog"]) { [TKMediaProxy shared].logRequests = ![params[@"on"] isEqualToString:@"0"]; return YES; }
+    // link?url=<a web link, percent-encoded>: exactly what a tap on that link in a caption, a comment or a bio does
+    // (a TikTok link opens here, the rest through the chooser of TKExternalOpen), so the sheet can be snapshotted
+    if ([target isEqualToString:@"link"]) {
+        NSString *link = params[@"url"];
+        if (link.length) [TKLinkRouter openWebLink:link from:top anchor:nil];
+        TKLog(@"Link %@: %@", link ?: @"", link.length ? @"opened as a tapped link" : @"no url given");
+        return YES;
+    }
     // lang?set=en|cs|system: the app's own language, for checking both (the device's stays); it applies from the next
     // launch, so the app quits
     if ([target isEqualToString:@"lang"]) {

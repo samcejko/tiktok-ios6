@@ -13,13 +13,13 @@
 - (void)videoCellWasTouched:(TKVideoCell *)cell;        // pause/play or seeking: someone is watching
 - (void)videoCellDidTapAuthor:(TKVideoCell *)cell;      // the name, the avatar or a swipe to the left: the profile
 - (void)videoCellDidTapLive:(TKVideoCell *)cell;        // the avatar while the creator is live: their stream
-- (void)videoCell:(TKVideoCell *)cell didTapLink:(NSString *)link;   // in the caption: "tag:<name>", "user:<handle>"
+- (void)videoCell:(TKVideoCell *)cell didTapLink:(NSString *)link;   // in the caption: "tag:<name>", "user:<handle>", "url:<link>"
 - (void)videoCellDidTapSound:(TKVideoCell *)cell;       // the music line or the spinning disc: the sound's page
 @end
 
 // One full-screen video page: AVPlayer behind, cover art until the first frame, the author/caption overlay (its
-// #hashtags and @mentions open their pages), TikTok's captions, the right-hand buttons with the sound's disc and a
-// scrubber along the bottom edge. Gestures: tap = pause/play, double tap = save, hold = menu, swipe left = the
+// #hashtags and @mentions open their pages, its web links open where they lead), TikTok's captions, the right-hand
+// buttons with the sound's disc and a scrubber along the bottom edge. Gestures: tap = pause/play, double tap = save, hold = menu, swipe left = the
 // creator's profile, drag sideways along the bottom = seek. The feed controller owns resolve; the cell just plays.
 @interface TKVideoCell : UIView
 @property (nonatomic, weak) id<TKVideoCellDelegate> delegate;
@@ -44,6 +44,7 @@
 - (void)updateSavedState:(BOOL)saved;
 - (void)showError:(NSString *)message;
 - (void)showToast:(NSString *)message;      // a short note in the middle that fades
+- (UIView *)linkAnchorView;                 // the caption: where a sheet for a link of this page points on the iPad
 - (void)teardown;
 
 // For the debug URL commands: the gestures' actions without a finger

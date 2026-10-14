@@ -1,6 +1,6 @@
 #import "TKProfileViewController.h"
 #import "TKLinkRouter.h"
-#import "TKExternalOpen.h"
+#import "TKLinkLabel.h"
 #import "TKTikTok.h"
 #import "TKModels.h"
 #import "TKImageLoader.h"
@@ -24,7 +24,7 @@ static const CGFloat TKStatsHeight = 52;
 @property (nonatomic, strong) NSArray *captionLabels;
 @property (nonatomic, strong) NSArray *dividers;          // etched: a dark and a light line each
 @property (nonatomic, strong) UIButton *liveButton;
-@property (nonatomic, strong) UILabel *bioLabel;
+@property (nonatomic, strong) TKLinkLabel *bioLabel;      // (the web links in the bio open on a tap)
 @property (nonatomic, strong) UIButton *linkButton;
 - (CGFloat)layoutForWidth:(CGFloat)width apply:(BOOL)apply;
 @end
@@ -86,9 +86,14 @@ static const CGFloat TKStatsHeight = 52;
         [_liveButton setTitle:[@"●  " stringByAppendingString:L(@"Watch live")] forState:UIControlStateNormal];
         [self addSubview:_liveButton];
 
-        _bioLabel = [self label:[UIFont systemFontOfSize:14] color:[theme embossTextColor] in:self];
+        _bioLabel = [[TKLinkLabel alloc] initWithFrame:CGRectZero];
+        _bioLabel.font = [UIFont systemFontOfSize:14];
+        _bioLabel.textColor = [theme embossTextColor];
+        _bioLabel.textAlignment = NSTextAlignmentCenter;
+        _bioLabel.backgroundColor = [UIColor clearColor];
         _bioLabel.numberOfLines = 6;
         [theme embossLabel:_bioLabel];
+        [self addSubview:_bioLabel];
 
         _linkButton = [UIButton buttonWithType:UIButtonTypeCustom];
         _linkButton.titleLabel.font = [UIFont boldSystemFontOfSize:13];
@@ -241,12 +246,10 @@ static const CGFloat TKStatsHeight = 52;
     if (self.profile.liveRoom.length) [TKLinkRouter openLiveRoom:self.profile.liveRoom];
 }
 
+// The link field: a TikTok link opens here, the rest where it leads (a sister app, a browser - iOS 6 asks which)
 - (void)openBioLink
 {
-    NSString *link = self.profile.link;
-    if (!link.length) return;
-    if (![[link lowercaseString] hasPrefix:@"http"]) link = [@"https://" stringByAppendingString:link];
-    if (![TKLinkRouter openLink:link]) [TKExternalOpen openInBrowser:[NSURL URLWithString:link]];
+    if (self.profile.link.length) [TKLinkRouter openWebLink:self.profile.link from:self anchor:self.header.linkButton];
 }
 
 @end

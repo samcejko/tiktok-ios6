@@ -30,7 +30,9 @@ address (e.g. `https://ytdlp.samcejko.eu`) and, if you set one, the key. The fee
 
 Links: `tiktak:open?url=<a TikTok link>` (or `tikie:...`) opens a video, photo post, profile, hashtag, sound or
 live stream (Surfari offers it for tiktok.com links), and so does "Open a link" in the gear menu. Also
-`tiktak:search?q=<words>`, `tiktak:tag/<hashtag>` and `tiktak:sound/<id>`.
+`tiktak:search?q=<words>`, `tiktak:tag/<hashtag>` and `tiktak:sound/<id>`. Web links in captions, comments and bios
+are tappable: a TikTok link opens in TikTak, a YouTube, Twitch or Kick link in Tubie, Twitcher or Kicker when that
+app is installed, anything else in Safari or Surfari (iOS 6 asks which; newer iOS opens Safari).
 
 ## Installing on the device
 

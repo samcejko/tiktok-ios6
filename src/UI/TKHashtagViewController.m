@@ -1,4 +1,5 @@
 #import "TKHashtagViewController.h"
+#import "TKLinkLabel.h"
 #import "TKTikTok.h"
 #import "TKModels.h"
 #import "TKTheme.h"
@@ -13,7 +14,7 @@ static const CGFloat TKTagTileSize = 84;
 @property (nonatomic, strong) UILabel *hashLabel;
 @property (nonatomic, strong) UILabel *nameLabel;
 @property (nonatomic, strong) UILabel *countsLabel;
-@property (nonatomic, strong) UILabel *descLabel;
+@property (nonatomic, strong) TKLinkLabel *descLabel;      // (the web links in the description open on a tap)
 - (void)showHashtag:(TKHashtag *)tag;
 - (CGFloat)layoutForWidth:(CGFloat)width apply:(BOOL)apply;
 @end
@@ -42,8 +43,13 @@ static const CGFloat TKTagTileSize = 84;
         [_tile addSubview:_hashLabel];
         _nameLabel = [self label:[UIFont boldSystemFontOfSize:21] color:[theme embossTextColor]];
         _countsLabel = [self label:[UIFont systemFontOfSize:14] color:[theme secondaryTextColor]];
-        _descLabel = [self label:[UIFont systemFontOfSize:14] color:[theme embossTextColor]];
+        _descLabel = [[TKLinkLabel alloc] initWithFrame:CGRectZero];
+        _descLabel.font = [UIFont systemFontOfSize:14];
+        _descLabel.textColor = [theme embossTextColor];
+        _descLabel.backgroundColor = [UIColor clearColor];
         _descLabel.numberOfLines = 4;
+        [theme embossLabel:_descLabel];
+        [self addSubview:_descLabel];
     }
     return self;
 }

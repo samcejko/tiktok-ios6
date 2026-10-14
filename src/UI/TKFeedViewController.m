@@ -21,6 +21,9 @@
 #import "TKCommon.h"
 
 enum { TKSheetMenu = 1, TKSheetVideo = 2 };
+// The video's hold menu: what each of its buttons does (which buttons there are depends on the iOS and on what is
+// installed, so the sheet keeps a list of these in button order)
+enum { TKVideoMenuSpeed, TKVideoMenuNotInterested, TKVideoMenuCopyLink, TKVideoMenuSafari, TKVideoMenuSurfari, TKVideoMenuShare, TKVideoMenuCaptions };
 
 // Auto-advance without anyone touching the screen: the first few moves still teach (mildly), later ones are
 // probably an unattended iPad and teach nothing, and after a few more the feed stops moving on and just loops.
@@ -67,6 +70,8 @@ static const NSInteger TKAutoAdvancesMax = 5;
 @property (nonatomic, readonly) BOOL pausedForLive;   // (one or more)
 @property (nonatomic, weak) TKVideoCell *menuCell;       // the page whose menu (hold) is open
 @property (nonatomic, weak) UIActionSheet *videoMenu;     // that menu while it is up
+@property (nonatomic, strong) NSArray *videoMenuActions;  // NSNumber (TKVideoMenu…) per button of that menu
+@property (nonatomic) BOOL shareWhenMenuGone;             // "Share" chosen: the share sheet comes once the menu has gone
 @property (nonatomic) NSInteger autoAdvanceStreak;        // moves on by itself since the viewer last did anything
 @property (nonatomic) BOOL autoAdvancing;                 // the page change under way is one of those
 @property (nonatomic) BOOL pageAnimating;                 // advance's scroll is under way
@@ -510,12 +515,13 @@ static const NSInteger TKAutoAdvancesMax = 5;
     [TKLinkRouter openLiveRoom:cell.video.authorLiveRoom];
 }
 
-// A #hashtag or @mention in the caption
+// A #hashtag, @mention or web link in the caption (a TikTok link opens here, others where they lead: TKLinkRouter)
 - (void)videoCell:(TKVideoCell *)cell didTapLink:(NSString *)link
 {
     [self viewerIsHere];
     if ([link hasPrefix:@"tag:"]) [TKLinkRouter openHashtag:[link substringFromIndex:4]];
     else if ([link hasPrefix:@"user:"]) [TKLinkRouter openProfile:[link substringFromIndex:5]];
+    else if ([link hasPrefix:@"url:"]) [TKLinkRouter openWebLink:[link substringFromIndex:4] from:self anchor:[cell linkAnchorView]];
 }
 
 - (void)videoCellDidTapSound:(TKVideoCell *)cell
@@ -620,12 +626,32 @@ static const NSInteger TKAutoAdvancesMax = 5;
     UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil delegate:self cancelButtonTitle:nil destructiveButtonTitle:nil otherButtonTitles:nil];
     sheet.tag = TKSheetVideo;
     self.videoMenu = sheet;
+    NSMutableArray *actions = [NSMutableArray array];
     [sheet addButtonWithTitle:cell.fastPlayback ? L(@"Play at normal speed") : L(@"Play at 2× speed")];
+    [actions addObject:@(TKVideoMenuSpeed)];
     [sheet addButtonWithTitle:L(@"Not interested")];
+    [actions addObject:@(TKVideoMenuNotInterested)];
     [sheet addButtonWithTitle:L(@"Copy link")];
-    [sheet addButtonWithTitle:[TKExternalOpen openInBrowserTitle]];
-    if (cell.hasCaptions) [sheet addButtonWithTitle:[TKSettings showCaptions] ? L(@"Hide captions") : L(@"Show captions")];
+    [actions addObject:@(TKVideoMenuCopyLink)];
+    [sheet addButtonWithTitle:L(@"Open in Safari")];
+    [actions addObject:@(TKVideoMenuSafari)];
+    // iOS 6: Surfari too, when it is installed (the browsers side by side, no second sheet); iOS 7 and newer: the
+    // system's share sheet instead
+    if (!TKModernIOS() && [TKExternalOpen surfariAvailable]) {
+        [sheet addButtonWithTitle:L(@"Open in Surfari")];
+        [actions addObject:@(TKVideoMenuSurfari)];
+    }
+    if (TKModernIOS()) {
+        [sheet addButtonWithTitle:L(@"Share")];
+        [actions addObject:@(TKVideoMenuShare)];
+    }
+    if (cell.hasCaptions) {
+        [sheet addButtonWithTitle:[TKSettings showCaptions] ? L(@"Hide captions") : L(@"Show captions")];
+        [actions addObject:@(TKVideoMenuCaptions)];
+    }
     sheet.cancelButtonIndex = [sheet addButtonWithTitle:L(@"Cancel")];
+    self.videoMenuActions = actions;
+    self.shareWhenMenuGone = NO;
     if (TKIsPad()) [sheet showFromRect:CGRectMake(point.x - 1, point.y - 1, 2, 2) inView:cell animated:YES];
     else [sheet showInView:self.view];
 }
@@ -634,28 +660,54 @@ static const NSInteger TKAutoAdvancesMax = 5;
 {
     TKVideoCell *cell = self.menuCell;
     TKVideo *v = cell.video;
-    if (!cell || !v) return;
-    if (index == 0) {
-        BOOL fast = !cell.fastPlayback;
-        if ([cell setFastPlayback:fast]) [cell showToast:fast ? L(@"2× speed") : L(@"Normal speed")];
-        else [cell showToast:L(@"This video cannot play faster.")];
-    } else if (index == 1) {
-        if (!self.fixedMode) [self.feed noteNotInterested:v];
-        [TKSettings markVideoSeen:v.videoId];
-        [cell showToast:L(@"Got it, fewer like this")];
-        [self performSelector:@selector(advance) withObject:nil afterDelay:0.6];
-    } else if (index == 2) {
-        [UIPasteboard generalPasteboard].string = [v shareURL];
-        [cell showToast:L(@"Link copied")];
-        if (!self.fixedMode) [self.feed noteEngaged:v weight:0.5];
-    } else if (index == 3) {
-        if (!self.fixedMode) [self.feed noteEngaged:v weight:0.5];
-        [TKExternalOpen openInBrowser:[NSURL URLWithString:[v shareURL]]];
-    } else if (index == 4 && cell.hasCaptions) {
-        BOOL show = ![TKSettings showCaptions];
-        [TKSettings setShowCaptions:show];
-        [cell showToast:show ? L(@"Captions on") : L(@"Captions off")];
+    if (!cell || !v || index < 0 || index >= (NSInteger)self.videoMenuActions.count) return;
+    NSURL *link = [NSURL URLWithString:[v shareURL]];
+    switch ([self.videoMenuActions[(NSUInteger)index] integerValue]) {
+        case TKVideoMenuSpeed: {
+            BOOL fast = !cell.fastPlayback;
+            if ([cell setFastPlayback:fast]) [cell showToast:fast ? L(@"2× speed") : L(@"Normal speed")];
+            else [cell showToast:L(@"This video cannot play faster.")];
+            break;
+        }
+        case TKVideoMenuNotInterested:
+            if (!self.fixedMode) [self.feed noteNotInterested:v];
+            [TKSettings markVideoSeen:v.videoId];
+            [cell showToast:L(@"Got it, fewer like this")];
+            [self performSelector:@selector(advance) withObject:nil afterDelay:0.6];
+            break;
+        case TKVideoMenuCopyLink:
+            [UIPasteboard generalPasteboard].string = [v shareURL];
+            [cell showToast:L(@"Link copied")];
+            if (!self.fixedMode) [self.feed noteEngaged:v weight:0.5];
+            break;
+        case TKVideoMenuSafari:
+            if (!self.fixedMode) [self.feed noteEngaged:v weight:0.5];
+            [TKExternalOpen openInSafari:link];
+            break;
+        case TKVideoMenuSurfari:
+            if (!self.fixedMode) [self.feed noteEngaged:v weight:0.5];
+            [TKExternalOpen openInSurfari:link];
+            break;
+        case TKVideoMenuShare:
+            if (!self.fixedMode) [self.feed noteEngaged:v weight:0.5];
+            self.shareWhenMenuGone = YES;    // (not over a sheet still on its way out: see didDismiss)
+            break;
+        case TKVideoMenuCaptions: {
+            BOOL show = ![TKSettings showCaptions];
+            [TKSettings setShowCaptions:show];
+            [cell showToast:show ? L(@"Captions on") : L(@"Captions off")];
+            break;
+        }
     }
+}
+
+// The hold menu has gone: the share sheet it asked for (iOS 7 and newer) comes now
+- (void)actionSheet:(UIActionSheet *)sheet didDismissWithButtonIndex:(NSInteger)index
+{
+    if (sheet.tag != TKSheetVideo || !self.shareWhenMenuGone) return;
+    self.shareWhenMenuGone = NO;
+    TKVideoCell *cell = self.menuCell;
+    if (cell.video) [TKExternalOpen presentShareSheetForURL:[NSURL URLWithString:[cell.video shareURL]] from:self anchor:[cell linkAnchorView]];
 }
 
 #pragma mark - Menu

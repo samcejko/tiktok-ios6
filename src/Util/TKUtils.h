@@ -16,6 +16,12 @@
 // `dropped` (may be nil) receives the range of every character left out, in the original string's UTF-16 units.
 + (NSString *)displayText:(NSString *)text;
 + (NSString *)displayText:(NSString *)text dropped:(NSMutableArray *)dropped;
+// The web links in a text (what the system's data detector finds: "https://…", "www.…", "example.com/…"), as
+// NSTextCheckingResult: the range in `text` and the URL (http:// added where the text had no scheme). Mail addresses
+// are left out, and so is the domain-like tail of a @mention or a #hashtag ("@john.name").
++ (NSArray *)webLinksInText:(NSString *)text;
+// A link as a button title: without the scheme and "www.", cut to `length` characters (NSURL or NSString)
++ (NSString *)linkTitle:(id)link length:(NSUInteger)length;
 
 // Encoding
 + (NSString *)urlEncode:(NSString *)string;                 // RFC 3986 unreserved characters stay

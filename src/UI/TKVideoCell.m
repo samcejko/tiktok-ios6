@@ -797,7 +797,9 @@ static FourCharCode TKFourCC(const char *s)
     if ([self.delegate respondsToSelector:@selector(videoCellWasTouched:)]) [self.delegate videoCellWasTouched:self];
 }
 
-// A tap on a #hashtag or @mention of the caption opens it; anywhere else it pauses or plays
+- (UIView *)linkAnchorView { return self.captionView; }
+
+// A tap on a #hashtag, @mention or web link of the caption opens it; anywhere else it pauses or plays
 - (void)tapped:(UITapGestureRecognizer *)g
 {
     NSString *link = [self.captionView linkAtPoint:[g locationInView:self.captionView]];

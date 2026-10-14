@@ -1,5 +1,6 @@
 #import "TKCommentsViewController.h"
 #import "TKLinkRouter.h"
+#import "TKLinkLabel.h"
 #import "TKTikTok.h"
 #import "TKHTTP.h"
 #import "TKModels.h"
@@ -35,7 +36,7 @@ static UILabel *TKCommentSizingLabel(void)
 @property (nonatomic, strong) UIButton *avatarButton;
 @property (nonatomic, strong) UILabel *nameLabel;
 @property (nonatomic, strong) UIButton *nameButton;
-@property (nonatomic, strong) UILabel *bodyLabel;
+@property (nonatomic, strong) TKLinkLabel *bodyLabel;     // (its web links open on a tap)
 @property (nonatomic, strong) UILabel *metaLabel;
 @property (nonatomic, strong) UILabel *heartLabel;
 @property (nonatomic, strong) UILabel *likesLabel;
@@ -67,9 +68,13 @@ static UILabel *TKCommentSizingLabel(void)
         _avatar.backgroundColor = [UIColor colorWithWhite:0.3 alpha:1];
         [self.contentView addSubview:_avatar];
         _nameLabel = [self label:[UIFont boldSystemFontOfSize:12] color:[theme secondaryTextColor]];
-        _bodyLabel = [self label:[theme bodyFont] color:[theme primaryTextColor]];
+        _bodyLabel = [[TKLinkLabel alloc] initWithFrame:CGRectZero];
+        _bodyLabel.font = [theme bodyFont];
+        _bodyLabel.textColor = [theme primaryTextColor];
+        _bodyLabel.backgroundColor = [UIColor clearColor];
         _bodyLabel.numberOfLines = TKCommentMaxLines;
         _bodyLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+        [self.contentView addSubview:_bodyLabel];
         _metaLabel = [self label:[UIFont systemFontOfSize:11] color:[theme secondaryTextColor]];
         _heartLabel = [self label:[UIFont systemFontOfSize:15] color:[theme secondaryTextColor]];
         _heartLabel.text = @"♥";
@@ -270,8 +275,8 @@ static UILabel *TKCommentSizingLabel(void)
     if (c.author.length && [c.author caseInsensitiveCompare:self.video.author ?: @""] == NSOrderedSame) [name appendFormat:@"  ·  %@", L(@"Creator")];
     if (c.pinned) [name appendFormat:@"  ·  %@", L(@"Pinned")];
     cell.nameLabel.text = name;
+    cell.bodyLabel.font = c.isReply ? [[TKTheme shared] smallFont] : [[TKTheme shared] bodyFont];   // (before the text: its links take the font)
     cell.bodyLabel.text = [TKUtils displayText:c.text];
-    cell.bodyLabel.font = c.isReply ? [[TKTheme shared] smallFont] : [[TKTheme shared] bodyFont];
     cell.metaLabel.text = c.createdAt > 0 ? [TKUtils formatRelativeDate:[NSDate dateWithTimeIntervalSince1970:c.createdAt]] : @"";
     cell.likesLabel.text = c.likes ? [TKUtils formatCount:c.likes] : @"";
     cell.avatarButton.tag = ip.row;
